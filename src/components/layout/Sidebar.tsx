@@ -8,7 +8,8 @@ import {
   Monitor,
   LogOut,
   Moon,
-  Sun
+  Sun,
+  Download
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTheme } from '@/hooks/useTheme';
@@ -18,6 +19,7 @@ const navItems = [
   { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/employees', label: 'Employees', icon: Users },
   { path: '/analytics', label: 'Analytics', icon: BarChart3 },
+  { path: '/agent-download', label: 'Agent Download', icon: Download },
   { path: '/settings', label: 'Settings', icon: Settings },
 ];
 
