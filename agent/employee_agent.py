@@ -12,7 +12,7 @@ import os
 import sys
 from datetime import datetime
 from PIL import ImageGrab
-import pygetwindow as gw
+import win32gui
 from pynput import mouse, keyboard
 import pystray
 from PIL import Image
@@ -54,12 +54,11 @@ def on_keyboard_activity(key):
 def get_active_window():
     """Get the title of the currently active window."""
     try:
-        active = gw.getActiveWindow()
-        if active:
-            return active.title or "Unknown"
+        hwnd = win32gui.GetForegroundWindow()
+        title = win32gui.GetWindowText(hwnd)
+        return title if title else "Unknown"
     except Exception:
-        pass
-    return "Unknown"
+        return "Unknown"
 
 def check_idle_status():
     """Check if user is idle based on last activity time."""
