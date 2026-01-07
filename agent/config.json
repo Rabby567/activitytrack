@@ -1,0 +1,8 @@
+{
+  "api_key": "YOUR_EMPLOYEE_API_KEY_HERE",
+  "api_url": "https://pwtejgeeeitbhtpljnzi.supabase.co/functions/v1",
+  "activity_interval": 30,
+  "screenshot_interval": 600,
+  "idle_threshold": 300,
+  "screenshot_quality": 60
+}
