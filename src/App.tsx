@@ -11,6 +11,7 @@ import Employees from "./pages/Employees";
 import EmployeeDetail from "./pages/EmployeeDetail";
 import Analytics from "./pages/Analytics";
 import Settings from "./pages/Settings";
+import AgentDownload from "./pages/AgentDownload";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -30,6 +31,7 @@ const App = () => (
               <Route path="/employees" element={<Employees />} />
               <Route path="/employees/:id" element={<EmployeeDetail />} />
               <Route path="/analytics" element={<Analytics />} />
+              <Route path="/agent-download" element={<AgentDownload />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
