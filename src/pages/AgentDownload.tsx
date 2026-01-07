@@ -20,14 +20,13 @@ Tracks active applications, idle status, and captures screenshots.
 import json
 import time
 import threading
-import base64
 import io
 import os
 import sys
 from datetime import datetime
 
 import requests
-import pygetwindow as gw
+import win32gui
 from pynput import mouse, keyboard
 from PIL import ImageGrab
 import pystray
@@ -64,12 +63,11 @@ class EmployeeAgent:
     def get_active_window(self):
         """Get the title of the currently active window."""
         try:
-            active_window = gw.getActiveWindow()
-            if active_window:
-                return active_window.title
+            hwnd = win32gui.GetForegroundWindow()
+            title = win32gui.GetWindowText(hwnd)
+            return title if title else "Unknown"
         except Exception:
-            pass
-        return "Unknown"
+            return "Unknown"
     
     def on_activity(self, *args):
         """Called when keyboard or mouse activity is detected."""
@@ -233,10 +231,11 @@ if __name__ == '__main__':
   "screenshot_quality": 60
 }`,
   'requirements.txt': `requests>=2.28.0
-pygetwindow>=0.0.9
+pywin32>=306
 pynput>=1.7.6
 Pillow>=9.0.0
-pystray>=0.19.4`,
+pystray>=0.19.4
+psutil>=5.9.0`,
   'setup.bat': `@echo off
 :: ============================================
 :: Employee Monitor Agent - One-Click Setup
@@ -342,10 +341,34 @@ Write-Host ""
 Write-Info "[Step 2/4] Installing Python packages..."
 
 try {
-    & $pythonCmd -m pip install -r requirements.txt --quiet 2>&1 | Out-Null
+    # First upgrade pip
+    Write-Info "  Upgrading pip..."
+    & $pythonCmd -m pip install --upgrade pip 2>&1 | Out-Null
+    
+    # Install packages with visible output
+    Write-Info "  Installing dependencies (this may take a minute)..."
+    $pipResult = & $pythonCmd -m pip install -r requirements.txt 2>&1
+    
+    if ($LASTEXITCODE -ne 0) {
+        Write-Err "  Package installation failed!"
+        Write-Err "  Error details:"
+        $pipResult | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
+        throw "pip install failed"
+    }
+    
     Write-Success "  All packages installed successfully!"
 } catch {
     Write-Err "  Failed to install packages"
+    Write-Host ""
+    Write-Host "============================================" -ForegroundColor Red
+    Write-Host "  Troubleshooting Tips:" -ForegroundColor Red
+    Write-Host "============================================" -ForegroundColor Red
+    Write-Warn "  1. Try running as Administrator"
+    Write-Warn "  2. Check your internet connection"
+    Write-Warn "  3. If error persists, try: pip install pywin32 pynput Pillow pystray psutil requests"
+    Write-Host ""
+    Write-Host "Press any key to exit..."
+    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
     exit 1
 }
 

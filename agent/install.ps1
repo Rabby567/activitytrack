@@ -108,10 +108,32 @@ Write-Host ""
 Write-Info "[Step 2/4] Installing Python packages..."
 
 try {
-    $pipOutput = & $pythonCmd -m pip install -r requirements.txt --quiet 2>&1
+    # First upgrade pip
+    Write-Info "  Upgrading pip..."
+    & $pythonCmd -m pip install --upgrade pip 2>&1 | Out-Null
+    
+    # Install packages with visible output
+    Write-Info "  Installing dependencies (this may take a minute)..."
+    $pipResult = & $pythonCmd -m pip install -r requirements.txt 2>&1
+    
+    if ($LASTEXITCODE -ne 0) {
+        Write-Err "  Package installation failed!"
+        Write-Err "  Error details:"
+        $pipResult | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
+        throw "pip install failed"
+    }
+    
     Write-Success "  All packages installed successfully!"
 } catch {
-    Write-Err "  Failed to install packages: $_"
+    Write-Err "  Failed to install packages"
+    Write-Host ""
+    Write-Host "============================================" -ForegroundColor Red
+    Write-Host "  Troubleshooting Tips:" -ForegroundColor Red
+    Write-Host "============================================" -ForegroundColor Red
+    Write-Warn "  1. Try running as Administrator"
+    Write-Warn "  2. Check your internet connection"
+    Write-Warn "  3. If error persists, try: pip install pywin32 pynput Pillow pystray psutil requests"
+    Write-Host ""
     Write-Host "Press any key to exit..."
     $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
     exit 1
