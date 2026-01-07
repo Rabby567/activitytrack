@@ -1,13 +1,16 @@
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Download, FileCode, Settings, FileText, Terminal } from 'lucide-react';
+import { Download, FileCode, Settings, FileText, Terminal, User, Zap, Copy, Check } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 import JSZip from 'jszip';
 import { useState } from 'react';
 import { toast } from 'sonner';
+import { useEmployees } from '@/hooks/useEmployees';
 
-// Agent file contents
-const agentFiles = {
+// Agent file contents generator
+const getAgentFiles = (apiKey?: string) => ({
   'employee_agent.py': `#!/usr/bin/env python3
 """
 Employee Activity Monitoring Agent
@@ -222,7 +225,7 @@ if __name__ == '__main__':
     agent.start()
 `,
   'config.json': `{
-  "api_key": "YOUR_EMPLOYEE_API_KEY_HERE",
+  "api_key": "${apiKey || 'YOUR_EMPLOYEE_API_KEY_HERE'}",
   "api_url": "https://pwtejgeeeitbhtpljnzi.supabase.co/functions/v1",
   "activity_interval": 30,
   "screenshot_interval": 600,
@@ -234,183 +237,275 @@ pygetwindow>=0.0.9
 pynput>=1.7.6
 Pillow>=9.0.0
 pystray>=0.19.4`,
-  'install.bat': `@echo off
-echo ========================================
-echo   Employee Monitor Agent Installer
-echo ========================================
+  'setup.bat': `@echo off
+:: ============================================
+:: Employee Monitor Agent - One-Click Setup
+:: ============================================
+:: Double-click this file to install the agent
+:: ============================================
+
+echo.
+echo Starting one-click installation...
 echo.
 
-REM Check if Python is installed
-python --version >nul 2>&1
+:: Run PowerShell installer with bypass policy
+powershell -ExecutionPolicy Bypass -File "%~dp0install.ps1"
+
+:: If PowerShell fails, show message
 if errorlevel 1 (
-    echo ERROR: Python is not installed or not in PATH.
-    echo Please install Python 3.8+ from https://python.org
+    echo.
+    echo ============================================
+    echo   Installation encountered an issue
+    echo ============================================
+    echo.
+    echo If you see an error, try running as Administrator:
+    echo   Right-click setup.bat ^> Run as administrator
+    echo.
     pause
-    exit /b 1
 )
+`,
+  'install.ps1': `# ============================================
+# Employee Monitor Agent - One-Click Installer
+# ============================================
 
-echo Installing required packages...
-pip install -r requirements.txt
+$ErrorActionPreference = "Stop"
 
-if errorlevel 1 (
-    echo ERROR: Failed to install packages.
-    pause
-    exit /b 1
-)
+function Write-Success { param($msg) Write-Host $msg -ForegroundColor Green }
+function Write-Info { param($msg) Write-Host $msg -ForegroundColor Cyan }
+function Write-Warn { param($msg) Write-Host $msg -ForegroundColor Yellow }
+function Write-Err { param($msg) Write-Host $msg -ForegroundColor Red }
 
-echo.
-echo ========================================
-echo   Installation Complete!
-echo ========================================
-echo.
-echo Next steps:
-echo 1. Edit config.json and add your API key
-echo 2. Run: python employee_agent.py
-echo.
-pause`,
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+Set-Location $scriptDir
+
+Write-Host ""
+Write-Host "============================================" -ForegroundColor Cyan
+Write-Host "  Employee Monitor Agent - One-Click Setup" -ForegroundColor Cyan
+Write-Host "============================================" -ForegroundColor Cyan
+Write-Host ""
+
+# Step 1: Check/Install Python
+Write-Info "[Step 1/4] Checking Python installation..."
+
+$pythonCmd = $null
+$pythonPaths = @("python", "python3", "py")
+
+foreach ($cmd in $pythonPaths) {
+    try {
+        $version = & $cmd --version 2>&1
+        if ($version -match "Python 3\\.([0-9]+)") {
+            $minorVersion = [int]$Matches[1]
+            if ($minorVersion -ge 8) {
+                $pythonCmd = $cmd
+                Write-Success "  Found: $version"
+                break
+            }
+        }
+    } catch {}
+}
+
+if (-not $pythonCmd) {
+    Write-Warn "  Python 3.8+ not found. Installing Python..."
+    
+    $hasWinget = Get-Command winget -ErrorAction SilentlyContinue
+    
+    if ($hasWinget) {
+        Write-Info "  Installing Python via winget..."
+        winget install Python.Python.3.11 --silent --accept-package-agreements --accept-source-agreements
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        Start-Sleep -Seconds 5
+        $pythonCmd = "python"
+    } else {
+        Write-Info "  Downloading Python installer..."
+        $pythonUrl = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe"
+        $installerPath = "$env:TEMP\\python-installer.exe"
+        
+        try {
+            Invoke-WebRequest -Uri $pythonUrl -OutFile $installerPath -UseBasicParsing
+            Write-Info "  Running Python installer (this may take a few minutes)..."
+            Start-Process -FilePath $installerPath -ArgumentList "/quiet", "InstallAllUsers=0", "PrependPath=1", "Include_test=0" -Wait
+            $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+            Remove-Item $installerPath -ErrorAction SilentlyContinue
+            $pythonCmd = "python"
+            Write-Success "  Python installed successfully!"
+        } catch {
+            Write-Err "  Failed to install Python. Please install manually from https://python.org"
+            Write-Host "Press any key to exit..."
+            $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+            exit 1
+        }
+    }
+}
+
+# Step 2: Install Python packages
+Write-Host ""
+Write-Info "[Step 2/4] Installing Python packages..."
+
+try {
+    & $pythonCmd -m pip install -r requirements.txt --quiet 2>&1 | Out-Null
+    Write-Success "  All packages installed successfully!"
+} catch {
+    Write-Err "  Failed to install packages"
+    exit 1
+}
+
+# Step 3: Verify config
+Write-Host ""
+Write-Info "[Step 3/4] Checking configuration..."
+
+$configPath = Join-Path $scriptDir "config.json"
+if (Test-Path $configPath) {
+    $config = Get-Content $configPath | ConvertFrom-Json
+    if ($config.api_key -eq "YOUR_EMPLOYEE_API_KEY_HERE") {
+        Write-Warn "  Warning: API key not configured!"
+    } else {
+        Write-Success "  Configuration found with API key set!"
+    }
+} else {
+    Write-Err "  config.json not found!"
+    exit 1
+}
+
+# Step 4: Create startup task
+Write-Host ""
+Write-Info "[Step 4/4] Setting up auto-start..."
+
+$taskName = "EmployeeMonitorAgent"
+$pythonPath = (Get-Command $pythonCmd -ErrorAction SilentlyContinue).Source
+if (-not $pythonPath) { $pythonPath = $pythonCmd }
+
+$pythonwPath = $pythonPath -replace "python\\.exe$", "pythonw.exe"
+if (-not (Test-Path $pythonwPath)) { $pythonwPath = $pythonPath }
+
+$agentScript = Join-Path $scriptDir "employee_agent.py"
+
+$existingTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+if ($existingTask) {
+    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+}
+
+try {
+    $action = New-ScheduledTaskAction -Execute $pythonwPath -Argument "\`"$agentScript\`"" -WorkingDirectory $scriptDir
+    $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+    $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
+    
+    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal | Out-Null
+    Write-Success "  Agent will start automatically on login!"
+} catch {
+    Write-Warn "  Could not create startup task"
+}
+
+Write-Host ""
+Write-Host "============================================" -ForegroundColor Green
+Write-Host "  Installation Complete!" -ForegroundColor Green
+Write-Host "============================================" -ForegroundColor Green
+Write-Host ""
+
+$launchNow = Read-Host "Start the agent now? (Y/n)"
+if ($launchNow -ne "n" -and $launchNow -ne "N") {
+    Write-Info "Launching Employee Monitor Agent..."
+    Start-Process -FilePath $pythonCmd -ArgumentList "\`"$agentScript\`"" -WorkingDirectory $scriptDir
+    Write-Success "Agent is now running in the system tray!"
+}
+
+Write-Host ""
+Write-Host "Press any key to close..."
+$null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+`,
   'README.md': `# Employee Activity Monitor Agent
 
 A lightweight Windows agent that tracks employee activity and sends data to the ActivityTrack dashboard.
 
-## Features
+## One-Click Installation (Recommended)
 
-- **Active Window Tracking**: Monitors which application is currently in focus
-- **Idle Detection**: Detects when the user is away from their computer
-- **Screenshot Capture**: Takes periodic screenshots (every 10 minutes by default)
-- **System Tray**: Runs quietly in the background with a system tray icon
+1. **Double-click \`setup.bat\`** - That's it!
 
-## Requirements
+The installer will automatically:
+- Install Python if not present
+- Install all required packages
+- Configure auto-start on Windows login
+- Launch the agent
 
-- Windows 10/11
-- Python 3.8 or higher
-- Internet connection
+## Manual Installation
 
-## Installation
+If one-click doesn't work:
 
-### Option 1: Quick Install (Recommended)
+1. Install Python 3.8+ from [python.org](https://python.org)
+2. Open Command Prompt in this folder
+3. Run: \`pip install -r requirements.txt\`
+4. Run: \`python employee_agent.py\`
 
-1. Double-click \`install.bat\`
-2. Wait for dependencies to install
-3. Edit \`config.json\` with your API key
-4. Run \`python employee_agent.py\`
+## Configuration
 
-### Option 2: Manual Install
+Edit \`config.json\` to customize:
 
-1. Install Python dependencies:
-   \`\`\`bash
-   pip install -r requirements.txt
-   \`\`\`
+| Option | Default | Description |
+|--------|---------|-------------|
+| \`api_key\` | (required) | Employee's unique API key |
+| \`activity_interval\` | 30 | Seconds between activity logs |
+| \`screenshot_interval\` | 600 | Seconds between screenshots |
+| \`idle_threshold\` | 300 | Seconds before marked idle |
 
-2. Configure the agent by editing \`config.json\`:
-   \`\`\`json
-   {
-     "api_key": "YOUR_EMPLOYEE_API_KEY_HERE",
-     "api_url": "https://your-project.supabase.co/functions/v1",
-     "activity_interval": 30,
-     "screenshot_interval": 600,
-     "idle_threshold": 300,
-     "screenshot_quality": 60
-   }
-   \`\`\`
+## System Tray
 
-3. Run the agent:
-   \`\`\`bash
-   python employee_agent.py
-   \`\`\`
-
-## Configuration Options
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| \`api_key\` | Employee's unique API key (from admin dashboard) | Required |
-| \`api_url\` | Backend API URL | Required |
-| \`activity_interval\` | Seconds between activity logs | 30 |
-| \`screenshot_interval\` | Seconds between screenshots | 600 (10 min) |
-| \`idle_threshold\` | Seconds of inactivity before marked idle | 300 (5 min) |
-| \`screenshot_quality\` | JPEG quality for screenshots (1-100) | 60 |
-
-## Getting the API Key
-
-1. Log into the ActivityTrack admin dashboard
-2. Go to the Employees page
-3. Find the employee and click on their row
-4. Copy the API key from the employee details page
-
-## Running at Startup (Optional)
-
-To run the agent automatically when Windows starts:
-
-1. Press \`Win + R\`, type \`shell:startup\`, press Enter
-2. Create a shortcut to \`employee_agent.py\` in this folder
-3. Right-click the shortcut > Properties > Change "Start in" to the agent folder
-
-## System Tray Usage
-
-Once running, the agent appears in the system tray (bottom-right corner):
-
-- **Green icon**: Agent is running normally
-- **Right-click menu**:
-  - Pause/Resume: Temporarily stop tracking
-  - Exit: Stop the agent completely
+The agent runs in the system tray (bottom-right corner):
+- **Green icon**: Running normally
+- **Right-click**: Pause/Resume or Exit
 
 ## Troubleshooting
 
-### "Python is not recognized"
-Install Python from [python.org](https://python.org) and check "Add to PATH" during installation.
+**"Python not found"**: Install from python.org, ensure "Add to PATH" is checked.
 
-### "Failed to install packages"
-Run Command Prompt as Administrator and try again.
+**"Cannot create startup task"**: Run setup.bat as Administrator.
 
-### "Network error"
-Check your internet connection and verify the API URL in config.json.
-
-### Screenshots not uploading
-Verify your API key is correct and the employee exists in the system.
-
-## Privacy Notice
-
-This agent:
-- Tracks active window titles
-- Monitors keyboard/mouse activity (for idle detection only, no keylogging)
-- Captures screenshots at configurable intervals
-- Sends data only to your organization's ActivityTrack server
-
-All data is transmitted securely over HTTPS.
+**"Network error"**: Check internet connection and verify API key.
 `
-};
+});
 
 export default function AgentDownload() {
   const [isDownloading, setIsDownloading] = useState(false);
+  const [selectedEmployee, setSelectedEmployee] = useState<string>('');
+  const [copied, setCopied] = useState(false);
+  const { employees, loading } = useEmployees();
 
-  const downloadAgentZip = async () => {
+  const selectedEmployeeData = employees.find(e => e.id === selectedEmployee);
+
+  const downloadAgentZip = async (withApiKey: boolean = false) => {
     setIsDownloading(true);
     try {
+      const apiKey = withApiKey && selectedEmployeeData ? selectedEmployeeData.api_key : undefined;
+      const agentFiles = getAgentFiles(apiKey);
+      
       const zip = new JSZip();
-      const folder = zip.folder('employee-agent');
+      const folderName = selectedEmployeeData 
+        ? `employee-agent-${selectedEmployeeData.name.replace(/\s+/g, '-').toLowerCase()}`
+        : 'employee-agent';
+      const folder = zip.folder(folderName);
       
       if (!folder) {
         throw new Error('Failed to create folder');
       }
       
-      // Add all files to the ZIP
       Object.entries(agentFiles).forEach(([filename, content]) => {
         folder.file(filename, content);
       });
       
-      // Generate the ZIP file
       const blob = await zip.generateAsync({ type: 'blob' });
       
-      // Download the file
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = 'employee-agent.zip';
+      link.download = `${folderName}.zip`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
       
-      toast.success('Agent downloaded successfully!');
+      toast.success(withApiKey 
+        ? `Personalized installer for ${selectedEmployeeData?.name} downloaded!`
+        : 'Agent downloaded successfully!'
+      );
     } catch (error) {
       console.error('Download failed:', error);
       toast.error('Failed to download agent files');
@@ -419,11 +514,21 @@ export default function AgentDownload() {
     }
   };
 
+  const copyApiKey = () => {
+    if (selectedEmployeeData?.api_key) {
+      navigator.clipboard.writeText(selectedEmployeeData.api_key);
+      setCopied(true);
+      toast.success('API key copied to clipboard');
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
   const files = [
+    { name: 'setup.bat', icon: Zap, description: 'One-click installer - double-click to install' },
     { name: 'employee_agent.py', icon: FileCode, description: 'Main Python agent script' },
     { name: 'config.json', icon: Settings, description: 'Configuration file (API key, intervals)' },
+    { name: 'install.ps1', icon: Terminal, description: 'PowerShell installer script' },
     { name: 'requirements.txt', icon: FileText, description: 'Python dependencies' },
-    { name: 'install.bat', icon: Terminal, description: 'Windows installer script' },
     { name: 'README.md', icon: FileText, description: 'Setup and usage instructions' },
   ];
 
@@ -438,65 +543,141 @@ export default function AgentDownload() {
         </div>
 
         <div className="grid gap-6 md:grid-cols-2">
-          {/* Download Card */}
-          <Card>
+          {/* One-Click Installer Card */}
+          <Card className="border-primary/50 bg-primary/5">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Download className="h-5 w-5" />
-                Download Agent
+                <Zap className="h-5 w-5 text-primary" />
+                One-Click Installer
               </CardTitle>
               <CardDescription>
-                Get the complete agent package as a ZIP file
+                Download a personalized installer with API key pre-configured
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="employee-select">Select Employee</Label>
+                <Select value={selectedEmployee} onValueChange={setSelectedEmployee}>
+                  <SelectTrigger id="employee-select">
+                    <SelectValue placeholder="Choose an employee..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {loading ? (
+                      <SelectItem value="loading" disabled>Loading employees...</SelectItem>
+                    ) : employees.length === 0 ? (
+                      <SelectItem value="none" disabled>No employees found</SelectItem>
+                    ) : (
+                      employees.map((employee) => (
+                        <SelectItem key={employee.id} value={employee.id}>
+                          <span className="flex items-center gap-2">
+                            <User className="h-4 w-4" />
+                            {employee.name} ({employee.employee_code})
+                          </span>
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {selectedEmployeeData && (
+                <div className="p-3 bg-muted rounded-lg space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">API Key:</span>
+                    <Button variant="ghost" size="sm" onClick={copyApiKey}>
+                      {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                  <code className="text-xs break-all block">
+                    {selectedEmployeeData.api_key.slice(0, 8)}...{selectedEmployeeData.api_key.slice(-4)}
+                  </code>
+                </div>
+              )}
+
               <Button 
-                onClick={downloadAgentZip} 
-                disabled={isDownloading}
+                onClick={() => downloadAgentZip(true)} 
+                disabled={isDownloading || !selectedEmployee}
                 className="w-full"
                 size="lg"
               >
                 <Download className="mr-2 h-5 w-5" />
-                {isDownloading ? 'Preparing download...' : 'Download Agent ZIP'}
+                {isDownloading ? 'Preparing...' : 'Download Personalized Installer'}
               </Button>
-              <p className="text-sm text-muted-foreground">
-                Contains Python agent, configuration, and installation scripts for Windows.
+              
+              <p className="text-xs text-muted-foreground">
+                Just double-click <code>setup.bat</code> on the employee's PC - no manual configuration needed!
               </p>
             </CardContent>
           </Card>
 
-          {/* Requirements Card */}
+          {/* Generic Download Card */}
           <Card>
             <CardHeader>
-              <CardTitle>System Requirements</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <Download className="h-5 w-5" />
+                Generic Agent Package
+              </CardTitle>
               <CardDescription>
-                What's needed to run the agent
+                Download without pre-configured API key
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              <ul className="space-y-2 text-sm">
-                <li className="flex items-center gap-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-                  Windows 10 or 11
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-                  Python 3.8 or higher
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-                  Internet connection
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-                  Employee API key (from dashboard)
-                </li>
-              </ul>
+            <CardContent className="space-y-4">
+              <Button 
+                onClick={() => downloadAgentZip(false)} 
+                disabled={isDownloading}
+                className="w-full"
+                variant="outline"
+                size="lg"
+              >
+                <Download className="mr-2 h-5 w-5" />
+                {isDownloading ? 'Preparing...' : 'Download Generic Agent'}
+              </Button>
+              <p className="text-sm text-muted-foreground">
+                API key must be manually added to <code>config.json</code> after installation.
+              </p>
             </CardContent>
           </Card>
         </div>
 
-        {/* Files List */}
+        {/* Installation Steps - Updated */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Zap className="h-5 w-5" />
+              One-Click Installation Guide
+            </CardTitle>
+            <CardDescription>
+              Deploying has never been easier
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ol className="space-y-4 text-sm">
+              <li className="flex gap-3">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-medium">1</span>
+                <div>
+                  <p className="font-medium">Select employee & download</p>
+                  <p className="text-muted-foreground">Choose the employee above and download their personalized installer</p>
+                </div>
+              </li>
+              <li className="flex gap-3">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-medium">2</span>
+                <div>
+                  <p className="font-medium">Extract & run</p>
+                  <p className="text-muted-foreground">Extract the ZIP on the employee's PC and double-click <code className="bg-muted px-1 rounded">setup.bat</code></p>
+                </div>
+              </li>
+              <li className="flex gap-3">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-medium">3</span>
+                <div>
+                  <p className="font-medium">Done!</p>
+                  <p className="text-muted-foreground">The installer handles Python, dependencies, auto-start, and launches the agent automatically</p>
+                </div>
+              </li>
+            </ol>
+          </CardContent>
+        </Card>
+
+        {/* Package Contents */}
         <Card>
           <CardHeader>
             <CardTitle>Package Contents</CardTitle>
@@ -519,45 +700,29 @@ export default function AgentDownload() {
           </CardContent>
         </Card>
 
-        {/* Installation Steps */}
+        {/* System Requirements */}
         <Card>
           <CardHeader>
-            <CardTitle>Quick Installation Guide</CardTitle>
+            <CardTitle>System Requirements</CardTitle>
             <CardDescription>
-              Steps to deploy the agent on employee computers
+              The one-click installer handles most requirements automatically
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <ol className="space-y-4 text-sm">
-              <li className="flex gap-3">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-medium">1</span>
-                <div>
-                  <p className="font-medium">Download and extract</p>
-                  <p className="text-muted-foreground">Download the ZIP file and extract it to the employee's computer (e.g., C:\EmployeeMonitor)</p>
-                </div>
+            <ul className="space-y-2 text-sm">
+              <li className="flex items-center gap-2">
+                <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                Windows 10 or 11
               </li>
-              <li className="flex gap-3">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-medium">2</span>
-                <div>
-                  <p className="font-medium">Run the installer</p>
-                  <p className="text-muted-foreground">Double-click install.bat to install Python dependencies</p>
-                </div>
+              <li className="flex items-center gap-2">
+                <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                Python 3.8+ <span className="text-muted-foreground">(auto-installed if missing)</span>
               </li>
-              <li className="flex gap-3">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-medium">3</span>
-                <div>
-                  <p className="font-medium">Configure API key</p>
-                  <p className="text-muted-foreground">Open config.json and replace YOUR_EMPLOYEE_API_KEY_HERE with the employee's API key from the Employees page</p>
-                </div>
+              <li className="flex items-center gap-2">
+                <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                Internet connection
               </li>
-              <li className="flex gap-3">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-medium">4</span>
-                <div>
-                  <p className="font-medium">Start the agent</p>
-                  <p className="text-muted-foreground">Run python employee_agent.py - it will appear in the system tray</p>
-                </div>
-              </li>
-            </ol>
+            </ul>
           </CardContent>
         </Card>
       </div>
