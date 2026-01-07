@@ -49,6 +49,44 @@ export type Database = {
           },
         ]
       }
+      agent_requests: {
+        Row: {
+          created_at: string
+          employee_id: string
+          id: string
+          reason: string | null
+          request_type: string
+          responded_at: string | null
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          employee_id: string
+          id?: string
+          reason?: string | null
+          request_type: string
+          responded_at?: string | null
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          employee_id?: string
+          id?: string
+          reason?: string | null
+          request_type?: string
+          responded_at?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_requests_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       employees: {
         Row: {
           api_key: string

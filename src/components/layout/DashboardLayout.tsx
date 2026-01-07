@@ -3,6 +3,7 @@ import { Sidebar } from './Sidebar';
 import { useAuth } from '@/hooks/useAuth';
 import { Navigate } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
+import { NotificationBell } from './NotificationBell';
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -28,6 +29,9 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       <Sidebar />
       <main className="flex-1 overflow-auto">
         <div className="container py-6 px-8">
+          <div className="flex justify-end mb-4">
+            <NotificationBell />
+          </div>
           {children}
         </div>
       </main>

@@ -1,8 +1,14 @@
 # Employee Activity Monitor Agent
 
-A lightweight Windows agent that tracks employee activity and sends data to the ActivityTrack dashboard.
+A protected Windows agent that tracks employee activity with anti-tampering features.
 
-## One-Click Installation (Recommended)
+## Key Features
+
+- **Protected Mode**: Agent cannot be closed without admin approval
+- **Auto-Restart**: Agent restarts automatically if terminated
+- **Auto-Start**: Runs automatically when Windows starts
+
+## One-Click Installation
 
 1. **Double-click `setup.bat`** - That's it!
 
@@ -12,15 +18,13 @@ The installer will automatically:
 - Configure auto-start on Windows login
 - Launch the agent
 
-## Manual Installation
+## How Close Protection Works
 
-If one-click doesn't work:
-
-1. Install Python 3.8+ from [python.org](https://python.org) (check "Add to PATH")
-2. Open Command Prompt in this folder
-3. Run: `pip install -r requirements.txt`
-4. Edit `config.json` and add your API key
-5. Run: `python employee_agent.py`
+When an employee tries to close the agent:
+1. Right-click tray icon → "Request Close (Requires Approval)"
+2. Request is sent to admin dashboard
+3. Admin receives notification and can approve/deny
+4. Agent only closes if admin approves
 
 ## Configuration
 
@@ -41,18 +45,12 @@ Edit `config.json` to customize:
 2. Go to **Agent Download** page
 3. Select the employee and download the personalized installer (API key pre-configured!)
 
-Or manually:
-1. Go to **Employees** page
-2. Click on the employee
-3. Copy the API key from the detail page
-
 ## System Tray
 
 The agent runs in the system tray (bottom-right corner):
 - **Green icon**: Running normally
 - **Right-click menu**:
-  - Pause/Resume: Temporarily stop tracking
-  - Exit: Stop the agent
+  - Request Close: Sends close request to admin for approval
 
 ## Troubleshooting
 
@@ -65,13 +63,12 @@ Run `setup.bat` as Administrator (right-click > Run as administrator).
 ### "Network error"
 Check internet connection and verify the API key in config.json.
 
-### Agent not appearing in system tray
-- Check Task Manager for python.exe
-- Run from Command Prompt to see error messages
+### Agent restarts after closing
+This is by design - the agent is protected and requires admin approval to close.
 
-## Uninstallation
+## Uninstallation (Admin Only)
 
-1. Right-click the system tray icon and select "Exit"
+1. Admin must approve the close request from the dashboard
 2. Open Task Scheduler and delete "EmployeeMonitorAgent" task
 3. Delete the agent folder
 
