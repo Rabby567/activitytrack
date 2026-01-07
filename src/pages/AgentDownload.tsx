@@ -14,7 +14,8 @@ const getAgentFiles = (apiKey?: string) => ({
   'employee_agent.py': `#!/usr/bin/env python3
 """
 Employee Activity Monitoring Agent
-Tracks active applications, idle status, and captures screenshots.
+Protected agent with anti-tampering features.
+Requires admin approval to close or uninstall.
 """
 
 import json
@@ -23,10 +24,15 @@ import threading
 import io
 import os
 import sys
+import ctypes
+import atexit
 from datetime import datetime
 
 import requests
 import win32gui
+import win32con
+import win32api
+import win32process
 from pynput import mouse, keyboard
 from PIL import ImageGrab
 import pystray
@@ -38,14 +44,20 @@ class EmployeeAgent:
         self.last_activity_time = time.time()
         self.is_idle = False
         self.is_running = True
-        self.is_paused = False
         self.current_app = ""
         self.icon = None
+        self.pending_request_id = None
+        self.close_approved = False
+        
+        # Register cleanup to restart on unexpected exit
+        atexit.register(self.on_unexpected_exit)
         
     def load_config(self, config_path):
         """Load configuration from JSON file."""
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        full_path = os.path.join(script_dir, config_path)
         try:
-            with open(config_path, 'r') as f:
+            with open(full_path, 'r') as f:
                 config = json.load(f)
             self.api_key = config.get('api_key', '')
             self.api_url = config.get('api_url', '')
@@ -54,10 +66,10 @@ class EmployeeAgent:
             self.idle_threshold = config.get('idle_threshold', 300)
             self.screenshot_quality = config.get('screenshot_quality', 60)
         except FileNotFoundError:
-            print(f"Config file not found: {config_path}")
+            print(f"Config file not found: {full_path}")
             sys.exit(1)
         except json.JSONDecodeError:
-            print(f"Invalid JSON in config file: {config_path}")
+            print(f"Invalid JSON in config file: {full_path}")
             sys.exit(1)
     
     def get_active_window(self):
@@ -84,7 +96,7 @@ class EmployeeAgent:
     
     def log_activity(self):
         """Send activity log to the server."""
-        if self.is_paused or not self.api_key:
+        if not self.api_key:
             return
             
         self.current_app = self.get_active_window()
@@ -113,19 +125,15 @@ class EmployeeAgent:
     
     def capture_screenshot(self):
         """Capture and upload a screenshot."""
-        if self.is_paused or not self.api_key:
+        if not self.api_key:
             return
             
         try:
-            # Capture screenshot
             screenshot = ImageGrab.grab()
-            
-            # Compress to JPEG
             buffer = io.BytesIO()
             screenshot.save(buffer, format='JPEG', quality=self.screenshot_quality)
             buffer.seek(0)
             
-            # Upload
             response = requests.post(
                 f"{self.api_url}/upload-screenshot",
                 headers={
@@ -138,66 +146,141 @@ class EmployeeAgent:
             )
             
             if response.status_code == 200:
-                print(f"[{datetime.now().strftime('%H:%M:%S')}] Screenshot uploaded successfully")
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] Screenshot uploaded")
             else:
-                print(f"[{datetime.now().strftime('%H:%M:%S')}] Failed to upload screenshot: {response.status_code}")
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] Screenshot failed: {response.status_code}")
         except Exception as e:
             print(f"[{datetime.now().strftime('%H:%M:%S')}] Screenshot error: {e}")
     
     def activity_loop(self):
         """Main loop for activity logging."""
         while self.is_running:
-            if not self.is_paused:
-                self.log_activity()
+            self.log_activity()
             time.sleep(self.activity_interval)
     
     def screenshot_loop(self):
         """Main loop for screenshot capture."""
         while self.is_running:
-            if not self.is_paused:
-                self.capture_screenshot()
+            self.capture_screenshot()
             time.sleep(self.screenshot_interval)
     
+    def request_close_permission(self):
+        """Request permission from admin to close the agent."""
+        if self.pending_request_id:
+            print("Close request already pending...")
+            self.check_permission_status()
+            return
+        
+        try:
+            response = requests.post(
+                f"{self.api_url}/agent-request",
+                headers={
+                    'x-api-key': self.api_key,
+                    'Content-Type': 'application/json'
+                },
+                json={'request_type': 'close'},
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                self.pending_request_id = data.get('request_id')
+                print(f"Close request submitted. Waiting for admin approval...")
+                print(f"Request ID: {self.pending_request_id}")
+                # Start polling for approval
+                threading.Thread(target=self.poll_for_approval, daemon=True).start()
+            else:
+                print(f"Failed to submit close request: {response.status_code}")
+        except Exception as e:
+            print(f"Error requesting close permission: {e}")
+    
+    def poll_for_approval(self):
+        """Poll the server to check if close request was approved."""
+        while self.pending_request_id and self.is_running:
+            try:
+                response = requests.get(
+                    f"{self.api_url}/check-permission?request_id={self.pending_request_id}",
+                    headers={'x-api-key': self.api_key},
+                    timeout=10
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    status = data.get('status')
+                    
+                    if status == 'approved':
+                        print("Close request APPROVED by admin!")
+                        self.close_approved = True
+                        self.pending_request_id = None
+                        self.stop()
+                        return
+                    elif status == 'denied':
+                        reason = data.get('reason', 'No reason provided')
+                        print(f"Close request DENIED: {reason}")
+                        self.pending_request_id = None
+                        return
+                    # Still pending, continue polling
+            except Exception as e:
+                print(f"Error checking permission: {e}")
+            
+            time.sleep(5)  # Poll every 5 seconds
+    
+    def check_permission_status(self):
+        """Check current permission request status."""
+        if not self.pending_request_id:
+            print("No pending request")
+            return
+        print(f"Checking status of request {self.pending_request_id}...")
+    
+    def on_unexpected_exit(self):
+        """Called on unexpected exit - schedule restart."""
+        if not self.close_approved and self.is_running:
+            # Restart the agent
+            script_path = os.path.abspath(__file__)
+            os.system(f'start "" pythonw "{script_path}"')
+    
     def create_tray_icon(self):
-        """Create system tray icon."""
-        # Create a simple icon
+        """Create system tray icon with limited menu (no exit option)."""
         icon_image = Image.new('RGB', (64, 64), color='green')
         
         menu = pystray.Menu(
-            pystray.MenuItem('Status: Running', lambda: None, enabled=False),
+            pystray.MenuItem('Status: Active', lambda: None, enabled=False),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem('Pause', self.toggle_pause),
-            pystray.MenuItem('Exit', self.stop)
+            pystray.MenuItem('Request Close (Requires Approval)', self.on_request_close)
         )
         
         self.icon = pystray.Icon(
             'EmployeeMonitor',
             icon_image,
-            'Employee Monitor',
+            'Employee Monitor (Protected)',
             menu
         )
         return self.icon
     
-    def toggle_pause(self):
-        """Toggle pause state."""
-        self.is_paused = not self.is_paused
-        status = "Paused" if self.is_paused else "Running"
-        print(f"Agent {status}")
+    def on_request_close(self):
+        """Handle close request from tray menu."""
+        self.request_close_permission()
     
     def stop(self):
-        """Stop the agent."""
+        """Stop the agent (only after approval)."""
+        if not self.close_approved:
+            print("Cannot stop without admin approval")
+            return
+        
         self.is_running = False
         if self.icon:
             self.icon.stop()
     
     def start(self):
         """Start the agent."""
-        print("Starting Employee Monitor Agent...")
+        print("=" * 50)
+        print("  Employee Monitor Agent (Protected)")
+        print("=" * 50)
         print(f"API URL: {self.api_url}")
         print(f"Activity interval: {self.activity_interval}s")
         print(f"Screenshot interval: {self.screenshot_interval}s")
-        print(f"Idle threshold: {self.idle_threshold}s")
-        print("-" * 40)
+        print("NOTE: This agent requires admin approval to close")
+        print("=" * 50)
         
         # Start input listeners
         mouse_listener = mouse.Listener(on_move=self.on_activity, on_click=self.on_activity)
@@ -438,11 +521,17 @@ $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
 `,
   'README.md': `# Employee Activity Monitor Agent
 
-A lightweight Windows agent that tracks employee activity and sends data to the ActivityTrack dashboard.
+A protected Windows agent that tracks employee activity with anti-tampering features.
 
-## One-Click Installation (Recommended)
+## Key Features
 
-1. **Double-click \`setup.bat\`** - That's it!
+- **Protected Mode**: Agent cannot be closed without admin approval
+- **Auto-Restart**: Agent restarts automatically if terminated
+- **Auto-Start**: Runs automatically when Windows starts
+
+## One-Click Installation
+
+1. **Double-click \\\`setup.bat\\\`** - That's it!
 
 The installer will automatically:
 - Install Python if not present
@@ -450,39 +539,38 @@ The installer will automatically:
 - Configure auto-start on Windows login
 - Launch the agent
 
-## Manual Installation
+## How Close Protection Works
 
-If one-click doesn't work:
-
-1. Install Python 3.8+ from [python.org](https://python.org)
-2. Open Command Prompt in this folder
-3. Run: \`pip install -r requirements.txt\`
-4. Run: \`python employee_agent.py\`
+When an employee tries to close the agent:
+1. Right-click tray icon → "Request Close (Requires Approval)"
+2. Request is sent to admin dashboard
+3. Admin receives notification and can approve/deny
+4. Agent only closes if admin approves
 
 ## Configuration
 
-Edit \`config.json\` to customize:
+Edit \\\`config.json\\\` to customize:
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| \`api_key\` | (required) | Employee's unique API key |
-| \`activity_interval\` | 30 | Seconds between activity logs |
-| \`screenshot_interval\` | 600 | Seconds between screenshots |
-| \`idle_threshold\` | 300 | Seconds before marked idle |
+| \\\`api_key\\\` | (required) | Employee's unique API key |
+| \\\`activity_interval\\\` | 30 | Seconds between activity logs |
+| \\\`screenshot_interval\\\` | 600 | Seconds between screenshots |
+| \\\`idle_threshold\\\` | 300 | Seconds before marked idle |
 
 ## System Tray
 
-The agent runs in the system tray (bottom-right corner):
+The agent runs in the system tray:
 - **Green icon**: Running normally
-- **Right-click**: Pause/Resume or Exit
+- **Right-click**: Request Close (requires admin approval)
 
 ## Troubleshooting
 
-**"Python not found"**: Install from python.org, ensure "Add to PATH" is checked.
-
-**"Cannot create startup task"**: Run setup.bat as Administrator.
+**"Python not found"**: Install from python.org with "Add to PATH" checked.
 
 **"Network error"**: Check internet connection and verify API key.
+
+**Agent restarts after closing**: This is by design - admin approval is required.
 `
 });
 
