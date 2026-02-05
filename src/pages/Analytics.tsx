@@ -13,8 +13,10 @@ import { CalendarIcon, Download, Clock, TrendingUp, BarChart3, PieChartIcon } fr
 import { cn } from '@/lib/utils';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
-const COLORS = ['hsl(var(--chart-1))', 'hsl(var(--chart-2))', 'hsl(var(--chart-3))', 'hsl(var(--chart-4))', 'hsl(var(--chart-5))'];
-const DAY_COLORS = ['hsl(var(--chart-1))', 'hsl(var(--chart-2))', 'hsl(var(--chart-3))', 'hsl(var(--chart-4))', 'hsl(var(--chart-5))', 'hsl(var(--chart-1))', 'hsl(var(--chart-2))'];
+ // Vibrant colors for application usage chart
+ const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#F97316'];
+ // Colors for daily activity breakdown
+ const DAY_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4'];
 
 type DateRange = 'today' | 'week' | 'month' | 'custom';
 
@@ -22,6 +24,40 @@ type DateRange = 'today' | 'week' | 'month' | 'custom';
 const normalizeAppName = (appName: string): string => {
   if (!appName) return 'Unknown';
   
+   // File extension to application mapping (check first for filenames like "Untitled-1.indd")
+   const extensionMap: Record<string, string> = {
+     '.indd': 'Adobe InDesign',
+     '.ai': 'Adobe Illustrator',
+     '.psd': 'Adobe Photoshop',
+     '.psb': 'Adobe Photoshop',
+     '.aep': 'Adobe After Effects',
+     '.aet': 'Adobe After Effects',
+     '.prproj': 'Adobe Premiere Pro',
+     '.xd': 'Adobe XD',
+     '.fig': 'Figma',
+     '.sketch': 'Sketch',
+     '.docx': 'Microsoft Word',
+     '.doc': 'Microsoft Word',
+     '.xlsx': 'Microsoft Excel',
+     '.xls': 'Microsoft Excel',
+     '.pptx': 'PowerPoint',
+     '.ppt': 'PowerPoint',
+     '.pdf': 'PDF Viewer',
+     '.blend': 'Blender',
+     '.c4d': 'Cinema 4D',
+     '.max': '3ds Max',
+     '.ma': 'Maya',
+     '.mb': 'Maya',
+   };
+   
+   // Check for file extensions first
+   const lowerName = appName.toLowerCase();
+   for (const [ext, app] of Object.entries(extensionMap)) {
+     if (lowerName.includes(ext)) {
+       return app;
+     }
+   }
+   
   // Common browser patterns - extract browser name
   const browserPatterns = [
     { pattern: /Google Chrome/i, name: 'Google Chrome' },
