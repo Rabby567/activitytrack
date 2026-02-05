@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatDistanceToNow, format } from 'date-fns';
-import { ArrowLeft, Key, Copy, Trash2, RefreshCw, Clock, Activity, Image } from 'lucide-react';
+import { ArrowLeft, Key, Copy, Trash2, RefreshCw, Clock, Activity, Image, Download } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useEmployees } from '@/hooks/useEmployees';
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from 'recharts';
@@ -110,6 +110,28 @@ export default function EmployeeDetail() {
     return `${minutes}m`;
   };
 
+  const handleExportCSV = () => {
+    if (!employee) return;
+    
+    const headers = ['App', 'Status', 'Duration (seconds)', 'Duration (formatted)', 'Timestamp'];
+    const rows = logs.map(log => [
+      log.app_name,
+      log.status,
+      log.duration_seconds,
+      formatDuration(log.duration_seconds),
+      log.created_at
+    ]);
+    
+    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${employee.name.replace(/\s+/g, '-')}-activity-${format(new Date(), 'yyyy-MM-dd')}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const appUsageData = Object.entries(appUsage)
     .sort(([, a], [, b]) => b - a)
     .slice(0, 5)
@@ -151,6 +173,10 @@ export default function EmployeeDetail() {
           <Button variant="destructive" size="sm" onClick={handleDelete}>
             <Trash2 className="h-4 w-4 mr-2" />
             Delete
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExportCSV}>
+            <Download className="h-4 w-4 mr-2" />
+            Export CSV
           </Button>
         </div>
 
