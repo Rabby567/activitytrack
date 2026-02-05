@@ -14,8 +14,85 @@ import { cn } from '@/lib/utils';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 const COLORS = ['hsl(var(--chart-1))', 'hsl(var(--chart-2))', 'hsl(var(--chart-3))', 'hsl(var(--chart-4))', 'hsl(var(--chart-5))'];
+const DAY_COLORS = ['hsl(var(--chart-1))', 'hsl(var(--chart-2))', 'hsl(var(--chart-3))', 'hsl(var(--chart-4))', 'hsl(var(--chart-5))', 'hsl(var(--chart-1))', 'hsl(var(--chart-2))'];
 
 type DateRange = 'today' | 'week' | 'month' | 'custom';
+
+// Normalize app names to show only the application name
+const normalizeAppName = (appName: string): string => {
+  if (!appName) return 'Unknown';
+  
+  // Common browser patterns - extract browser name
+  const browserPatterns = [
+    { pattern: /Google Chrome/i, name: 'Google Chrome' },
+    { pattern: /Mozilla Firefox/i, name: 'Mozilla Firefox' },
+    { pattern: /Microsoft Edge/i, name: 'Microsoft Edge' },
+    { pattern: /Safari/i, name: 'Safari' },
+    { pattern: /Opera/i, name: 'Opera' },
+    { pattern: /Brave/i, name: 'Brave' },
+  ];
+  
+  for (const { pattern, name } of browserPatterns) {
+    if (pattern.test(appName)) return name;
+  }
+  
+  // Common application patterns
+  const appPatterns = [
+    { pattern: /Adobe Photoshop/i, name: 'Adobe Photoshop' },
+    { pattern: /Adobe Illustrator/i, name: 'Adobe Illustrator' },
+    { pattern: /Adobe Premiere/i, name: 'Adobe Premiere' },
+    { pattern: /Adobe After Effects/i, name: 'Adobe After Effects' },
+    { pattern: /Adobe XD/i, name: 'Adobe XD' },
+    { pattern: /Adobe InDesign/i, name: 'Adobe InDesign' },
+    { pattern: /Figma/i, name: 'Figma' },
+    { pattern: /Sketch/i, name: 'Sketch' },
+    { pattern: /Discord/i, name: 'Discord' },
+    { pattern: /Slack/i, name: 'Slack' },
+    { pattern: /Microsoft Teams/i, name: 'Microsoft Teams' },
+    { pattern: /Zoom/i, name: 'Zoom' },
+    { pattern: /Visual Studio Code/i, name: 'VS Code' },
+    { pattern: /Code\.exe/i, name: 'VS Code' },
+    { pattern: /Sublime Text/i, name: 'Sublime Text' },
+    { pattern: /Notepad\+\+/i, name: 'Notepad++' },
+    { pattern: /Microsoft Word/i, name: 'Microsoft Word' },
+    { pattern: /Microsoft Excel/i, name: 'Microsoft Excel' },
+    { pattern: /Microsoft PowerPoint/i, name: 'PowerPoint' },
+    { pattern: /Microsoft Outlook/i, name: 'Outlook' },
+    { pattern: /Spotify/i, name: 'Spotify' },
+    { pattern: /VLC/i, name: 'VLC Media Player' },
+    { pattern: /File Explorer/i, name: 'File Explorer' },
+    { pattern: /explorer\.exe/i, name: 'File Explorer' },
+    { pattern: /Terminal/i, name: 'Terminal' },
+    { pattern: /cmd\.exe/i, name: 'Command Prompt' },
+    { pattern: /PowerShell/i, name: 'PowerShell' },
+    { pattern: /Notion/i, name: 'Notion' },
+    { pattern: /Trello/i, name: 'Trello' },
+    { pattern: /Postman/i, name: 'Postman' },
+    { pattern: /GitHub Desktop/i, name: 'GitHub Desktop' },
+    { pattern: /Steam/i, name: 'Steam' },
+  ];
+  
+  for (const { pattern, name } of appPatterns) {
+    if (pattern.test(appName)) return name;
+  }
+  
+  // Remove common suffixes like " - filename.txt" or " - Website Title"
+  let cleaned = appName.split(' - ')[0].split(' — ')[0].split(' | ')[0];
+  
+  // Remove file extensions
+  cleaned = cleaned.replace(/\.(exe|app|dmg|msi)$/i, '');
+  
+  // Remove paths
+  if (cleaned.includes('\\')) {
+    cleaned = cleaned.split('\\').pop() || cleaned;
+  }
+  if (cleaned.includes('/')) {
+    cleaned = cleaned.split('/').pop() || cleaned;
+  }
+  
+  // Trim and return
+  return cleaned.trim() || 'Unknown';
+};
 
 export default function Analytics() {
   const { employees } = useEmployees();
@@ -80,7 +157,14 @@ export default function Analytics() {
   };
 
   // Prepare chart data
-  const appUsageData = Object.entries(appUsage)
+  // Group by normalized app names
+  const normalizedAppUsage = logs.reduce((acc, log) => {
+    const normalizedName = normalizeAppName(log.app_name);
+    acc[normalizedName] = (acc[normalizedName] || 0) + log.duration_seconds;
+    return acc;
+  }, {} as Record<string, number>);
+
+  const appUsageData = Object.entries(normalizedAppUsage)
     .sort(([, a], [, b]) => b - a)
     .slice(0, 8)
     .map(([name, value]) => ({ name: name.slice(0, 15), value, hours: (value / 3600).toFixed(1) }));
@@ -106,10 +190,11 @@ export default function Analytics() {
         days[day].idle += log.duration_seconds / 3600;
       }
     });
-    return Object.entries(days).map(([name, data]) => ({
+    return Object.entries(days).map(([name, data], index) => ({
       name,
       working: Number(data.working.toFixed(1)),
-      idle: Number(data.idle.toFixed(1))
+      idle: Number(data.idle.toFixed(1)),
+      fill: DAY_COLORS[index % DAY_COLORS.length]
     }));
   }, [logs]);
 
@@ -299,8 +384,16 @@ export default function Analytics() {
                     <YAxis label={{ value: 'Hours', angle: -90, position: 'insideLeft' }} />
                     <Tooltip />
                     <Legend />
-                    <Bar dataKey="working" name="Working" fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="idle" name="Idle" fill="hsl(var(--chart-2))" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="working" name="Working" radius={[4, 4, 0, 0]}>
+                      {dailyData.map((entry, index) => (
+                        <Cell key={`working-${index}`} fill={DAY_COLORS[index % DAY_COLORS.length]} />
+                      ))}
+                    </Bar>
+                    <Bar dataKey="idle" name="Idle" radius={[4, 4, 0, 0]}>
+                      {dailyData.map((entry, index) => (
+                        <Cell key={`idle-${index}`} fill={DAY_COLORS[(index + 2) % DAY_COLORS.length]} opacity={0.5} />
+                      ))}
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               )}
