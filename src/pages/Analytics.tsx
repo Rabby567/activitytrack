@@ -206,8 +206,8 @@ export default function Analytics() {
     .map(([name, value]) => ({ name: name.slice(0, 15), value, hours: (value / 3600).toFixed(1) }));
 
   const productivityData = [
-    { name: 'Working', value: totalWorkingTime, color: 'hsl(var(--chart-1))' },
-    { name: 'Idle', value: totalIdleTime, color: 'hsl(var(--chart-2))' }
+    { name: 'Working', value: totalWorkingTime, color: '#10B981' },
+    { name: 'Idle', value: totalIdleTime, color: '#F59E0B' }
   ];
 
   const productivityScore = totalWorkingTime + totalIdleTime > 0
