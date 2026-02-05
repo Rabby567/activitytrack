@@ -14,9 +14,9 @@ import { formatDistanceToNow, format } from 'date-fns';
 import { ArrowLeft, Key, Copy, Trash2, RefreshCw, Clock, Activity, Image, Download } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useEmployees } from '@/hooks/useEmployees';
-import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from 'recharts';
+import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 
-const COLORS = ['hsl(var(--chart-1))', 'hsl(var(--chart-2))', 'hsl(var(--chart-3))', 'hsl(var(--chart-4))', 'hsl(var(--chart-5))'];
+const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'];
 
 export default function EmployeeDetail() {
   const { id } = useParams<{ id: string }>();
@@ -320,7 +320,11 @@ export default function EmployeeDetail() {
                         <XAxis dataKey="name" />
                         <YAxis tickFormatter={(v) => formatDuration(v)} />
                         <Tooltip formatter={(value: number) => formatDuration(value)} />
-                        <Bar dataKey="value" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                          {timeData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={index === 0 ? '#10B981' : '#F59E0B'} />
+                          ))}
+                        </Bar>
                       </BarChart>
                     </ResponsiveContainer>
                   )}
