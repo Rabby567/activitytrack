@@ -1,99 +1,45 @@
 
 
-## Fix Application Name Display & Chart Colors
+## Fix Employee Detail Page Chart Colors
 
 ### Problem
-The Application Usage Time chart is showing file names like "Untitled-1.indd" instead of the application name "Adobe InDesign". This happens because:
-1. The current pattern matching only looks for "Adobe InDesign" in the window title
-2. Many times the window title is just the filename (e.g., `*Untitled-1.indd`)
-3. All bars appear the same color (black) instead of using distinct colors
+The Employee Detail page charts are showing black because they use CSS variable colors that don't resolve properly in Recharts:
+- **Top Applications pie chart**: Uses `hsl(var(--chart-1))`, `hsl(var(--chart-2))`, etc.
+- **Working vs Idle bar chart**: Uses `hsl(var(--primary))`
 
 ### Solution
 
-#### 1. Improve App Name Detection
+Update `src/pages/EmployeeDetail.tsx` to use explicit hex colors:
 
-Add file extension-based detection to map file types to their applications:
+#### 1. Update COLORS Array (Line 19)
 
-| File Extension | Application |
-|---------------|-------------|
-| `.indd` | Adobe InDesign |
-| `.ai` | Adobe Illustrator |
-| `.psd` | Adobe Photoshop |
-| `.aep`, `.aet` | Adobe After Effects |
-| `.prproj` | Adobe Premiere Pro |
-| `.xd` | Adobe XD |
-| `.fig` | Figma |
-| `.sketch` | Sketch |
-| `.docx`, `.doc` | Microsoft Word |
-| `.xlsx`, `.xls` | Microsoft Excel |
-| `.pptx`, `.ppt` | PowerPoint |
-| `.pdf` | PDF Viewer |
+Replace CSS variables with vibrant hex colors:
 
-The function will:
-1. First check for file extensions in the name and map to application
-2. Then check for application name patterns (existing logic)
-3. Finally clean up any remaining garbage text
+| Current | New |
+|---------|-----|
+| `hsl(var(--chart-1))` | `#3B82F6` (Blue) |
+| `hsl(var(--chart-2))` | `#10B981` (Green) |
+| `hsl(var(--chart-3))` | `#F59E0B` (Yellow) |
+| `hsl(var(--chart-4))` | `#EF4444` (Red) |
+| `hsl(var(--chart-5))` | `#8B5CF6` (Purple) |
 
-#### 2. Use More Vibrant Chart Colors
+#### 2. Update Bar Chart Colors (Line 319-325)
 
-Replace the chart colors with more distinct, vibrant colors that will definitely show up:
+Add individual Cell components with distinct colors for Working (Green) and Idle (Amber):
 
-```text
-Current: Uses CSS variables like 'hsl(var(--chart-1))'
-Updated: Use explicit vibrant colors like '#3B82F6', '#10B981', '#F59E0B', etc.
-```
+- **Working bar**: `#10B981` (Green)
+- **Idle bar**: `#F59E0B` (Amber)
 
 ### Files to Modify
 
 | File | Changes |
 |------|---------|
-| `src/pages/Analytics.tsx` | Update `normalizeAppName` function with file extension detection, update COLORS array with vibrant explicit colors |
-
-### Updated normalizeAppName Logic
-
-```text
-function normalizeAppName(appName):
-  1. Check if empty -> return "Unknown"
-  
-  2. Check for file extensions:
-     - .indd -> "Adobe InDesign"
-     - .ai -> "Adobe Illustrator" 
-     - .psd -> "Adobe Photoshop"
-     - etc.
-  
-  3. Check for browser patterns (existing):
-     - Google Chrome, Firefox, Edge, Safari, etc.
-  
-  4. Check for application patterns (existing):
-     - Adobe apps, VS Code, Discord, etc.
-  
-  5. Clean up remaining text:
-     - Remove " - title" suffixes
-     - Remove file paths
-     - Return cleaned name
-```
-
-### Updated Color Palette
-
-Use explicit hex colors for better visibility:
-
-```text
-Application Usage Chart:
-- Blue: #3B82F6
-- Green: #10B981  
-- Yellow: #F59E0B
-- Red: #EF4444
-- Purple: #8B5CF6
-- Pink: #EC4899
-- Cyan: #06B6D4
-- Orange: #F97316
-```
+| `src/pages/EmployeeDetail.tsx` | Replace COLORS array with hex colors, update bar chart to use Cell components with explicit colors |
 
 ### Result
 
 After implementation:
-- "Untitled-1.indd" will display as "Adobe InDesign"
-- "*Untitled-1.psd" will display as "Adobe Photoshop"
-- Each bar in the chart will have a distinct, visible color
-- Time spent in each application will be properly aggregated
+- Top Applications pie chart will show 5 distinct vibrant colors
+- Working vs Idle bar chart will show green for Working and amber for Idle
+- Charts will match the Analytics page styling
 
