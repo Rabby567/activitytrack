@@ -11,7 +11,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { format, subDays, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
 import { CalendarIcon, Download, Clock, TrendingUp, BarChart3, PieChartIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, AreaChart, Area } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 const COLORS = ['hsl(var(--chart-1))', 'hsl(var(--chart-2))', 'hsl(var(--chart-3))', 'hsl(var(--chart-4))', 'hsl(var(--chart-5))'];
 
@@ -55,6 +55,28 @@ export default function Analytics() {
 
   const formatHours = (seconds: number) => {
     return (seconds / 3600).toFixed(1);
+  };
+
+  const exportEmployeeCSV = (employeeId: string, employeeName: string) => {
+    const employeeLogs = logs.filter(log => log.employee_id === employeeId);
+    
+    const headers = ['App', 'Status', 'Duration (seconds)', 'Duration (formatted)', 'Timestamp'];
+    const rows = employeeLogs.map(log => [
+      log.app_name,
+      log.status,
+      log.duration_seconds,
+      formatDuration(log.duration_seconds),
+      log.created_at
+    ]);
+    
+    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${employeeName.replace(/\s+/g, '-')}-activity-${format(new Date(), 'yyyy-MM-dd')}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   // Prepare chart data
@@ -318,26 +340,43 @@ export default function Analytics() {
         </div>
 
         <div className="grid gap-4 lg:grid-cols-2">
-          <Card>
+          <Card className="lg:col-span-2">
             <CardHeader>
-              <CardTitle>Top Applications</CardTitle>
+              <CardTitle>Application Usage Time</CardTitle>
             </CardHeader>
             <CardContent>
               {appUsageData.length === 0 ? (
                 <p className="text-muted-foreground text-center py-8">No data for selected period</p>
               ) : (
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={appUsageData} layout="vertical">
-                    <XAxis type="number" tickFormatter={(v) => `${v}h`} />
-                    <YAxis dataKey="name" type="category" width={100} />
-                    <Tooltip formatter={(value: number) => formatDuration(value)} />
-                    <Bar dataKey="value" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
+                <ResponsiveContainer width="100%" height={350}>
+                  <BarChart data={appUsageData}>
+                    <XAxis 
+                      dataKey="name" 
+                      angle={-45} 
+                      textAnchor="end" 
+                      height={80}
+                      interval={0}
+                    />
+                    <YAxis 
+                      label={{ value: 'Hours', angle: -90, position: 'insideLeft' }}
+                      tickFormatter={(v) => `${(v / 3600).toFixed(1)}h`}
+                    />
+                    <Tooltip 
+                      formatter={(value: number) => [formatDuration(value), 'Time Used']} 
+                    />
+                    <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                      {appUsageData.map((_, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               )}
             </CardContent>
           </Card>
-
+        </div>
+        
+        <div className="grid gap-4 lg:grid-cols-1">
           <Card>
             <CardHeader>
               <CardTitle>Employee Productivity Ranking</CardTitle>
@@ -361,9 +400,19 @@ export default function Analytics() {
                         </span>
                         <span className="font-medium">{emp.name}</span>
                       </div>
-                      <div className="text-right">
-                        <span className="font-bold text-primary">{emp.score}%</span>
-                        <span className="text-sm text-muted-foreground ml-2">({emp.hours}h)</span>
+                      <div className="flex items-center gap-2">
+                        <div className="text-right">
+                          <span className="font-bold text-primary">{emp.score}%</span>
+                          <span className="text-sm text-muted-foreground ml-2">({emp.hours}h)</span>
+                        </div>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          onClick={() => exportEmployeeCSV(emp.id, emp.name)}
+                          title={`Download ${emp.name}'s activity report`}
+                        >
+                          <Download className="h-4 w-4" />
+                        </Button>
                       </div>
                     </div>
                   ))}
