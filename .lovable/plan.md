@@ -1,171 +1,99 @@
 
 
-## Individual CSV Export & Enhanced Application Chart
+## Fix Application Name Display & Chart Colors
 
-### Overview
-Add per-employee CSV download buttons and enhance the application usage bar chart visualization.
+### Problem
+The Application Usage Time chart is showing file names like "Untitled-1.indd" instead of the application name "Adobe InDesign". This happens because:
+1. The current pattern matching only looks for "Adobe InDesign" in the window title
+2. Many times the window title is just the filename (e.g., `*Untitled-1.indd`)
+3. All bars appear the same color (black) instead of using distinct colors
 
----
+### Solution
 
-### Changes to Analytics Page (`src/pages/Analytics.tsx`)
+#### 1. Improve App Name Detection
 
-#### 1. Create Employee-Specific CSV Export Function
+Add file extension-based detection to map file types to their applications:
 
-Add a new function that exports data for a single employee:
+| File Extension | Application |
+|---------------|-------------|
+| `.indd` | Adobe InDesign |
+| `.ai` | Adobe Illustrator |
+| `.psd` | Adobe Photoshop |
+| `.aep`, `.aet` | Adobe After Effects |
+| `.prproj` | Adobe Premiere Pro |
+| `.xd` | Adobe XD |
+| `.fig` | Figma |
+| `.sketch` | Sketch |
+| `.docx`, `.doc` | Microsoft Word |
+| `.xlsx`, `.xls` | Microsoft Excel |
+| `.pptx`, `.ppt` | PowerPoint |
+| `.pdf` | PDF Viewer |
 
-```typescript
-const exportEmployeeCSV = (employeeId: string, employeeName: string) => {
-  const employeeLogs = logs.filter(log => log.employee_id === employeeId);
-  
-  const headers = ['App', 'Status', 'Duration (seconds)', 'Duration (formatted)', 'Timestamp'];
-  const rows = employeeLogs.map(log => [
-    log.app_name,
-    log.status,
-    log.duration_seconds,
-    formatDuration(log.duration_seconds),
-    log.created_at
-  ]);
-  
-  const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-  const blob = new Blob([csv], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `${employeeName.replace(/\s+/g, '-')}-activity-${format(new Date(), 'yyyy-MM-dd')}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
-};
+The function will:
+1. First check for file extensions in the name and map to application
+2. Then check for application name patterns (existing logic)
+3. Finally clean up any remaining garbage text
+
+#### 2. Use More Vibrant Chart Colors
+
+Replace the chart colors with more distinct, vibrant colors that will definitely show up:
+
+```text
+Current: Uses CSS variables like 'hsl(var(--chart-1))'
+Updated: Use explicit vibrant colors like '#3B82F6', '#10B981', '#F59E0B', etc.
 ```
-
-#### 2. Add Download Button to Each Employee Row
-
-Update the Employee Productivity Ranking section to include download buttons:
-
-```tsx
-{employeeRanking.slice(0, 10).map((emp, index) => (
-  <div key={emp.id} className="flex items-center justify-between">
-    <div className="flex items-center gap-3">
-      {/* Rank badge */}
-      <span className={cn(...)}>
-        {index + 1}
-      </span>
-      <span className="font-medium">{emp.name}</span>
-    </div>
-    <div className="flex items-center gap-2">
-      <div className="text-right">
-        <span className="font-bold text-primary">{emp.score}%</span>
-        <span className="text-sm text-muted-foreground ml-2">({emp.hours}h)</span>
-      </div>
-      {/* NEW: Download button for this employee */}
-      <Button 
-        variant="ghost" 
-        size="icon" 
-        onClick={() => exportEmployeeCSV(emp.id, emp.name)}
-        title={`Download ${emp.name}'s activity report`}
-      >
-        <Download className="h-4 w-4" />
-      </Button>
-    </div>
-  </div>
-))}
-```
-
-#### 3. Enhance the Top Applications Bar Chart
-
-Convert the existing horizontal bar chart to a more visually appealing vertical bar chart with better labeling:
-
-```tsx
-<Card className="lg:col-span-2">
-  <CardHeader>
-    <CardTitle>Application Usage Time</CardTitle>
-  </CardHeader>
-  <CardContent>
-    {appUsageData.length === 0 ? (
-      <p className="text-muted-foreground text-center py-8">No data for selected period</p>
-    ) : (
-      <ResponsiveContainer width="100%" height={350}>
-        <BarChart data={appUsageData}>
-          <XAxis 
-            dataKey="name" 
-            angle={-45} 
-            textAnchor="end" 
-            height={80}
-            interval={0}
-          />
-          <YAxis 
-            label={{ value: 'Hours', angle: -90, position: 'insideLeft' }}
-            tickFormatter={(v) => `${(v / 3600).toFixed(1)}h`}
-          />
-          <Tooltip 
-            formatter={(value: number) => [formatDuration(value), 'Time Used']} 
-          />
-          <Bar 
-            dataKey="value" 
-            radius={[4, 4, 0, 0]}
-          >
-            {appUsageData.map((_, index) => (
-              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-            ))}
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
-    )}
-  </CardContent>
-</Card>
-```
-
----
-
-### Optional: Add Download Button to EmployeeDetail Page
-
-Also add a CSV export button to the individual employee detail page (`src/pages/EmployeeDetail.tsx`) in the header section:
-
-```tsx
-<Button variant="outline" size="sm" onClick={handleExportCSV}>
-  <Download className="h-4 w-4 mr-2" />
-  Export CSV
-</Button>
-```
-
-With the export function:
-```typescript
-const handleExportCSV = () => {
-  const headers = ['App', 'Status', 'Duration (seconds)', 'Duration (formatted)', 'Timestamp'];
-  const rows = logs.map(log => [
-    log.app_name,
-    log.status,
-    log.duration_seconds,
-    formatDuration(log.duration_seconds),
-    log.created_at
-  ]);
-  
-  const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-  const blob = new Blob([csv], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `${employee?.name.replace(/\s+/g, '-')}-activity-${format(new Date(), 'yyyy-MM-dd')}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
-};
-```
-
----
 
 ### Files to Modify
 
-| File | Change |
-|------|--------|
-| `src/pages/Analytics.tsx` | Add `exportEmployeeCSV` function, add download buttons to employee ranking, enhance bar chart |
-| `src/pages/EmployeeDetail.tsx` | Add CSV export button and function |
+| File | Changes |
+|------|---------|
+| `src/pages/Analytics.tsx` | Update `normalizeAppName` function with file extension detection, update COLORS array with vibrant explicit colors |
 
----
+### Updated normalizeAppName Logic
+
+```text
+function normalizeAppName(appName):
+  1. Check if empty -> return "Unknown"
+  
+  2. Check for file extensions:
+     - .indd -> "Adobe InDesign"
+     - .ai -> "Adobe Illustrator" 
+     - .psd -> "Adobe Photoshop"
+     - etc.
+  
+  3. Check for browser patterns (existing):
+     - Google Chrome, Firefox, Edge, Safari, etc.
+  
+  4. Check for application patterns (existing):
+     - Adobe apps, VS Code, Discord, etc.
+  
+  5. Clean up remaining text:
+     - Remove " - title" suffixes
+     - Remove file paths
+     - Return cleaned name
+```
+
+### Updated Color Palette
+
+Use explicit hex colors for better visibility:
+
+```text
+Application Usage Chart:
+- Blue: #3B82F6
+- Green: #10B981  
+- Yellow: #F59E0B
+- Red: #EF4444
+- Purple: #8B5CF6
+- Pink: #EC4899
+- Cyan: #06B6D4
+- Orange: #F97316
+```
 
 ### Result
 
 After implementation:
-- Each employee in the productivity ranking will have a download icon button
-- Clicking it downloads a CSV with only that employee's activity data
-- The application usage chart will be more colorful and easier to read
-- Employee detail page will also have an export option
+- "Untitled-1.indd" will display as "Adobe InDesign"
+- "*Untitled-1.psd" will display as "Adobe Photoshop"
+- Each bar in the chart will have a distinct, visible color
+- Time spent in each application will be properly aggregated
 
