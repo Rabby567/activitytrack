@@ -11,6 +11,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { format, subDays, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
 import { CalendarIcon, Download, Clock, TrendingUp, BarChart3, PieChartIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { isProductiveApp } from '@/lib/productiveApps';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
  // Vibrant colors for application usage chart
@@ -220,17 +221,16 @@ export default function Analytics() {
     logs.forEach(log => {
       const day = format(new Date(log.created_at), 'EEE');
       if (!days[day]) days[day] = { working: 0, idle: 0 };
-      if (log.status === 'working') {
+      if (isProductiveApp(log.app_name)) {
         days[day].working += log.duration_seconds / 3600;
       } else {
         days[day].idle += log.duration_seconds / 3600;
       }
     });
-    return Object.entries(days).map(([name, data], index) => ({
+    return Object.entries(days).map(([name, data]) => ({
       name,
       working: Number(data.working.toFixed(1)),
       idle: Number(data.idle.toFixed(1)),
-      fill: DAY_COLORS[index % DAY_COLORS.length]
     }));
   }, [logs]);
 
@@ -246,7 +246,7 @@ export default function Analytics() {
         ranking[log.employee_id] = { working: 0, idle: 0, name: emp.name };
       }
       
-      if (log.status === 'working') {
+      if (isProductiveApp(log.app_name)) {
         ranking[log.employee_id].working += log.duration_seconds;
       } else {
         ranking[log.employee_id].idle += log.duration_seconds;
@@ -420,16 +420,8 @@ export default function Analytics() {
                     <YAxis label={{ value: 'Hours', angle: -90, position: 'insideLeft' }} />
                     <Tooltip />
                     <Legend />
-                    <Bar dataKey="working" name="Working" radius={[4, 4, 0, 0]}>
-                      {dailyData.map((entry, index) => (
-                        <Cell key={`working-${index}`} fill={DAY_COLORS[index % DAY_COLORS.length]} />
-                      ))}
-                    </Bar>
-                    <Bar dataKey="idle" name="Idle" radius={[4, 4, 0, 0]}>
-                      {dailyData.map((entry, index) => (
-                        <Cell key={`idle-${index}`} fill={DAY_COLORS[(index + 2) % DAY_COLORS.length]} opacity={0.5} />
-                      ))}
-                    </Bar>
+                    <Bar dataKey="working" name="Working" fill="#10B981" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="idle" name="Idle" fill="#F59E0B" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               )}
