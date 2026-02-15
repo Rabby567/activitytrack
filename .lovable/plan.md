@@ -1,80 +1,50 @@
 
 
-## Fix: Stats Not Calculating Correctly Due to 1,000 Row Query Limit
+## Fix: Daily Activity Chart Missing Days and Date Range Issues
 
-### Root Cause
+### Problems Identified
 
-The database contains **8,792 activity logs** for Toufiq this month, but the query in `useActivityLogs` only fetches **1,000 rows** (Supabase's default limit). The stats are then calculated on this incomplete subset, showing 8.3h instead of the actual 73.3h.
+1. **Daily chart only shows days with data**: The chart builds its data from logs, so days without any logged activity don't appear at all. For "This Week", all 7 days (Sun-Sat) should always be shown, even if some have zero hours.
 
-### Actual vs Displayed Data (Toufiq, This Month)
-
-| Metric | Displayed | Actual |
-|--------|-----------|--------|
-| Total Hours | 8.3h | 73.3h |
-| Productive Time | 2.4h | 30.8h |
-| Idle Time | 6.0h | 42.5h |
-| Productivity Score | 28% | 42% |
+2. **Chart data limited to 5,000 rows**: While the stats cards now use the server-side RPC (accurate), the daily breakdown chart still relies on the raw logs query (capped at 5,000 rows). If there are more than 5,000 logs in a week/month, the chart will be incomplete.
 
 ### Solution
 
-Move the stats calculation to the database using a SQL aggregation query, and keep the detailed logs query (with a reasonable limit) only for chart rendering.
+#### 1. Fix Daily Chart to Show All Days (`src/pages/Analytics.tsx`)
 
-#### File: `src/hooks/useActivityLogs.tsx`
+Update the `dailyData` calculation to:
+- Pre-populate all days within the selected date range (e.g., Sun through Sat for "This Week")
+- Ensure days appear in chronological order, not insertion order
+- Show zero-value bars for days with no activity
 
-**Change 1: Add a separate stats query using RPC or direct SQL**
+For "Today", show just that one day. For "This Week", show all 7 days. For "This Month", show all dates grouped by day name or date.
 
-Create a database function that calculates totals server-side, so we don't need to fetch all rows to the client.
+#### 2. Increase Chart Data Accuracy (`src/hooks/useActivityLogs.tsx`)
 
-**Change 2: Create a database function (`get_activity_stats`)**
+For "This Week" view, 5,000 rows should be sufficient. But for "This Month" with many employees, we may still hit the limit. As a safeguard, we can add pagination or rely on the server-side RPC for chart data too -- but the simplest fix for now is ensuring the daily breakdown pre-fills all expected days.
 
-A new PostgreSQL function that accepts employee_id, start_date, and end_date parameters, and returns:
-- `total_working_seconds`: sum of duration where app matches productive apps
-- `total_idle_seconds`: sum of duration for all other apps
-- `app_usage`: JSON object of app name to total seconds
-
-The productive app detection will use the same logic (checking for photoshop, indesign, illustrator keywords and .psd, .psb, .indd, .ai extensions).
-
-**Change 3: Keep existing logs query for charts but with pagination awareness**
-
-The detailed logs query will remain for chart data, but increase the limit to fetch more rows (e.g., 10,000) or paginate. For the stats cards, use the new database function which processes all rows server-side.
-
-### Implementation Steps
-
-1. **Create database function** `get_activity_stats(p_employee_id uuid, p_start_date timestamptz, p_end_date timestamptz)` via migration that returns working seconds, idle seconds, and app usage aggregated across ALL matching rows.
-
-2. **Update `useActivityLogs` hook** to:
-   - Call the new database function for stats (totalWorkingTime, totalIdleTime, appUsage)
-   - Keep the existing query for raw logs but add `.limit(5000)` for chart data
-   - Return both the accurate stats and the log data
-
-3. **No changes needed to Analytics.tsx or EmployeeDetail.tsx** -- they consume the hook's return values which will now be accurate.
-
-### Technical Details
-
-**Database function (SQL migration):**
-
-```text
-CREATE OR REPLACE FUNCTION get_activity_stats(
-  p_employee_id uuid DEFAULT NULL,
-  p_start_date timestamptz DEFAULT NULL,
-  p_end_date timestamptz DEFAULT NULL
-)
-RETURNS JSON AS $$
-  -- Aggregates all matching rows server-side
-  -- Classifies apps as productive using LIKE patterns
-  -- Returns { working_seconds, idle_seconds, app_usage }
-$$
-```
-
-**Hook changes:**
-- Add a second query that calls `supabase.rpc('get_activity_stats', params)`
-- Use returned working_seconds and idle_seconds for the stats cards
-- Fall back to client-side calculation if the RPC fails
-
-### Files to Create/Modify
+### Files to Modify
 
 | File | Changes |
 |------|---------|
-| Database migration | New `get_activity_stats` function |
-| `src/hooks/useActivityLogs.tsx` | Add RPC call for stats, increase log limit |
+| `src/pages/Analytics.tsx` | Rewrite `dailyData` to pre-populate all days in the range and sort chronologically |
 
+### Technical Details
+
+**Updated `dailyData` logic (lines 218-235 of Analytics.tsx):**
+
+```text
+1. Generate all dates between startDate and endDate
+2. For each date, create a key using format(date, 'EEE dd') for weeks or 'EEE' for shorter ranges
+3. Initialize each day with { working: 0, idle: 0 }
+4. Loop through logs and add durations to the matching day
+5. Return array in chronological order (not random object key order)
+```
+
+This ensures:
+- "This Week" always shows Sun, Mon, Tue, Wed, Thu, Fri, Sat
+- "This Month" shows all dates in the month
+- "Today" shows just today
+- Days with no data appear as empty bars (zero height) rather than being hidden
+
+**Import addition:** Add `eachDayOfInterval` from `date-fns` to generate the full range of dates.
