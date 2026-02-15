@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { ActivityLog } from '@/types/database';
 import { useToast } from '@/hooks/use-toast';
+import { isProductiveApp } from '@/lib/productiveApps';
 
 interface UseActivityLogsOptions {
   employeeId?: string;
@@ -76,11 +77,11 @@ export function useActivityLogs(options: UseActivityLogsOptions = {}) {
   }, {} as Record<string, number>);
 
   const totalWorkingTime = logs
-    .filter(l => l.status === 'working')
+    .filter(l => isProductiveApp(l.app_name))
     .reduce((acc, l) => acc + l.duration_seconds, 0);
 
   const totalIdleTime = logs
-    .filter(l => l.status === 'idle')
+    .filter(l => !isProductiveApp(l.app_name))
     .reduce((acc, l) => acc + l.duration_seconds, 0);
 
   return {
