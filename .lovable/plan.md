@@ -1,77 +1,80 @@
 
 
-## Redefine "Working" vs "Idle" Based on Application Name
+## Fix: Stats Not Calculating Correctly Due to 1,000 Row Query Limit
 
-### Problem
-Currently, "working" and "idle" are determined by the `status` field in the database, which is based on keyboard/mouse activity. The user wants a different definition:
+### Root Cause
 
-- **Working**: Only time spent in **Adobe Photoshop**, **Adobe InDesign**, or **Adobe Illustrator**
-- **Idle**: Time spent in **all other applications**
+The database contains **8,792 activity logs** for Toufiq this month, but the query in `useActivityLogs` only fetches **1,000 rows** (Supabase's default limit). The stats are then calculated on this incomplete subset, showing 8.3h instead of the actual 73.3h.
 
-This affects stats (Total Hours, Productive Time, Idle Time, Productivity Score) and charts across both the Analytics and Employee Detail pages.
+### Actual vs Displayed Data (Toufiq, This Month)
+
+| Metric | Displayed | Actual |
+|--------|-----------|--------|
+| Total Hours | 8.3h | 73.3h |
+| Productive Time | 2.4h | 30.8h |
+| Idle Time | 6.0h | 42.5h |
+| Productivity Score | 28% | 42% |
 
 ### Solution
 
-#### 1. Create a shared helper function (`src/lib/productiveApps.ts`)
+Move the stats calculation to the database using a SQL aggregation query, and keep the detailed logs query (with a reasonable limit) only for chart rendering.
 
-A utility that checks if a given app name (raw window title) belongs to a "productive" app:
+#### File: `src/hooks/useActivityLogs.tsx`
 
-| Productive App | Detection Methods |
-|---------------|-------------------|
-| Adobe Photoshop | `.psd`, `.psb` extensions, or "Photoshop" in title |
-| Adobe InDesign | `.indd` extension, or "InDesign" in title |
-| Adobe Illustrator | `.ai` extension, or "Illustrator" in title |
+**Change 1: Add a separate stats query using RPC or direct SQL**
 
-#### 2. Update `useActivityLogs` hook
+Create a database function that calculates totals server-side, so we don't need to fetch all rows to the client.
 
-Change how `totalWorkingTime` and `totalIdleTime` are calculated:
+**Change 2: Create a database function (`get_activity_stats`)**
 
-- **Currently**: Uses `log.status === 'working'` (keyboard/mouse activity)
-- **Updated**: Uses `isProductiveApp(log.app_name)` to classify
+A new PostgreSQL function that accepts employee_id, start_date, and end_date parameters, and returns:
+- `total_working_seconds`: sum of duration where app matches productive apps
+- `total_idle_seconds`: sum of duration for all other apps
+- `app_usage`: JSON object of app name to total seconds
 
-This means all stats cards (Total Hours, Productive Time, Idle Time, Productivity Score) will automatically reflect the new logic everywhere the hook is used.
+The productive app detection will use the same logic (checking for photoshop, indesign, illustrator keywords and .psd, .psb, .indd, .ai extensions).
 
-#### 3. Update `Analytics.tsx` - Daily Activity Breakdown
+**Change 3: Keep existing logs query for charts but with pagination awareness**
 
-Change the daily breakdown chart to classify logs by app name instead of status:
+The detailed logs query will remain for chart data, but increase the limit to fetch more rows (e.g., 10,000) or paginate. For the stats cards, use the new database function which processes all rows server-side.
 
-- **Working hours**: Sum of duration where app is Photoshop/InDesign/Illustrator
-- **Idle hours**: Sum of duration for all other apps
-- Fix bar colors: Working = green (#10B981), Idle = amber (#F59E0B) -- remove per-day Cell components
+### Implementation Steps
 
-#### 4. Update `Analytics.tsx` - Employee Ranking
+1. **Create database function** `get_activity_stats(p_employee_id uuid, p_start_date timestamptz, p_end_date timestamptz)` via migration that returns working seconds, idle seconds, and app usage aggregated across ALL matching rows.
 
-Update the employee productivity ranking to use the same app-based classification.
+2. **Update `useActivityLogs` hook** to:
+   - Call the new database function for stats (totalWorkingTime, totalIdleTime, appUsage)
+   - Keep the existing query for raw logs but add `.limit(5000)` for chart data
+   - Return both the accurate stats and the log data
+
+3. **No changes needed to Analytics.tsx or EmployeeDetail.tsx** -- they consume the hook's return values which will now be accurate.
+
+### Technical Details
+
+**Database function (SQL migration):**
+
+```text
+CREATE OR REPLACE FUNCTION get_activity_stats(
+  p_employee_id uuid DEFAULT NULL,
+  p_start_date timestamptz DEFAULT NULL,
+  p_end_date timestamptz DEFAULT NULL
+)
+RETURNS JSON AS $$
+  -- Aggregates all matching rows server-side
+  -- Classifies apps as productive using LIKE patterns
+  -- Returns { working_seconds, idle_seconds, app_usage }
+$$
+```
+
+**Hook changes:**
+- Add a second query that calls `supabase.rpc('get_activity_stats', params)`
+- Use returned working_seconds and idle_seconds for the stats cards
+- Fall back to client-side calculation if the RPC fails
 
 ### Files to Create/Modify
 
 | File | Changes |
 |------|---------|
-| `src/lib/productiveApps.ts` | **New file** -- `isProductiveApp()` helper function |
-| `src/hooks/useActivityLogs.tsx` | Change `totalWorkingTime`/`totalIdleTime` to use app-based classification |
-| `src/pages/Analytics.tsx` | Update `dailyData` and `employeeRanking` to use app-based classification; fix daily chart bar colors |
-
-### Technical Details
-
-**isProductiveApp function logic:**
-```text
-function isProductiveApp(appName: string): boolean
-  1. Convert to lowercase
-  2. Check file extensions: .psd, .psb, .indd, .ai
-  3. Check name patterns: "photoshop", "indesign", "illustrator"
-  4. Return true if any match, false otherwise
-```
-
-**useActivityLogs changes (lines 78-84):**
-```text
-Before: filter by log.status === 'working' / 'idle'
-After:  filter by isProductiveApp(log.app_name) true/false
-```
-
-**Analytics.tsx dailyData changes (lines 218-235):**
-```text
-Before: if (log.status === 'working') -> working hours
-After:  if (isProductiveApp(log.app_name)) -> working hours
-Also: Remove Cell components from daily bars, use fill="#10B981" and fill="#F59E0B" directly
-```
+| Database migration | New `get_activity_stats` function |
+| `src/hooks/useActivityLogs.tsx` | Add RPC call for stats, increase log limit |
 
