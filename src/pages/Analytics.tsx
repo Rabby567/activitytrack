@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { format, subDays, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
+import { format, subDays, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, eachDayOfInterval } from 'date-fns';
 import { CalendarIcon, Download, Clock, TrendingUp, BarChart3, PieChartIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { isProductiveApp } from '@/lib/productiveApps';
@@ -217,22 +217,37 @@ export default function Analytics() {
 
   // Daily breakdown
   const dailyData = useMemo(() => {
-    const days: Record<string, { working: number; idle: number }> = {};
+    if (!startDate || !endDate) return [];
+    
+    const interval = eachDayOfInterval({ start: startDate, end: endDate > new Date() ? new Date() : endDate });
+    const useShortLabel = dateRange === 'today' || interval.length <= 7;
+    
+    // Pre-populate all days with zero values in chronological order
+    const dayMap = new Map<string, { name: string; working: number; idle: number }>();
+    interval.forEach(date => {
+      const key = format(date, 'yyyy-MM-dd');
+      const label = useShortLabel ? format(date, 'EEE') : format(date, 'MMM dd');
+      dayMap.set(key, { name: label, working: 0, idle: 0 });
+    });
+    
+    // Fill in actual data from logs
     logs.forEach(log => {
-      const day = format(new Date(log.created_at), 'EEE');
-      if (!days[day]) days[day] = { working: 0, idle: 0 };
+      const key = format(new Date(log.created_at), 'yyyy-MM-dd');
+      const entry = dayMap.get(key);
+      if (!entry) return;
       if (isProductiveApp(log.app_name)) {
-        days[day].working += log.duration_seconds / 3600;
+        entry.working += log.duration_seconds / 3600;
       } else {
-        days[day].idle += log.duration_seconds / 3600;
+        entry.idle += log.duration_seconds / 3600;
       }
     });
-    return Object.entries(days).map(([name, data]) => ({
-      name,
-      working: Number(data.working.toFixed(1)),
-      idle: Number(data.idle.toFixed(1)),
+    
+    return Array.from(dayMap.values()).map(d => ({
+      name: d.name,
+      working: Number(d.working.toFixed(1)),
+      idle: Number(d.idle.toFixed(1)),
     }));
-  }, [logs]);
+  }, [logs, startDate, endDate, dateRange]);
 
   // Employee productivity ranking
   const employeeRanking = useMemo(() => {
