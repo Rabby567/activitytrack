@@ -154,7 +154,7 @@ export default function Analytics() {
     }
   }, [dateRange, customStart, customEnd]);
 
-  const { logs, appUsage, totalWorkingTime, totalIdleTime } = useActivityLogs({
+  const { logs, appUsage, dailyBreakdown, totalWorkingTime, totalIdleTime } = useActivityLogs({
     employeeId: selectedEmployee === 'all' ? undefined : selectedEmployee,
     startDate,
     endDate
@@ -215,7 +215,7 @@ export default function Analytics() {
     ? Math.round((totalWorkingTime / (totalWorkingTime + totalIdleTime)) * 100)
     : 0;
 
-  // Daily breakdown
+  // Daily breakdown - uses server-side aggregated data (no row limit)
   const dailyData = useMemo(() => {
     if (!startDate || !endDate) return [];
     
@@ -230,16 +230,12 @@ export default function Analytics() {
       dayMap.set(key, { name: label, working: 0, idle: 0 });
     });
     
-    // Fill in actual data from logs
-    logs.forEach(log => {
-      const key = format(new Date(log.created_at), 'yyyy-MM-dd');
-      const entry = dayMap.get(key);
+    // Fill in data from server-side daily breakdown (aggregates ALL rows, no limit)
+    dailyBreakdown?.forEach(day => {
+      const entry = dayMap.get(day.date);
       if (!entry) return;
-      if (isProductiveApp(log.app_name)) {
-        entry.working += log.duration_seconds / 3600;
-      } else {
-        entry.idle += log.duration_seconds / 3600;
-      }
+      entry.working += (day.working_seconds || 0) / 3600;
+      entry.idle += (day.idle_seconds || 0) / 3600;
     });
     
     return Array.from(dayMap.values()).map(d => ({
@@ -247,7 +243,7 @@ export default function Analytics() {
       working: Number(d.working.toFixed(1)),
       idle: Number(d.idle.toFixed(1)),
     }));
-  }, [logs, startDate, endDate, dateRange]);
+  }, [dailyBreakdown, startDate, endDate, dateRange]);
 
   // Employee productivity ranking
   const employeeRanking = useMemo(() => {
