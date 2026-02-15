@@ -190,7 +190,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_activity_stats: {
+        Args: {
+          p_employee_id?: string
+          p_end_date?: string
+          p_start_date?: string
+        }
+        Returns: Json
+      }
     }
     Enums: {
       [_ in never]: never
