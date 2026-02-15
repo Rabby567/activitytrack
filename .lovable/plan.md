@@ -1,45 +1,77 @@
 
 
-## Fix Employee Detail Page Chart Colors
+## Redefine "Working" vs "Idle" Based on Application Name
 
 ### Problem
-The Employee Detail page charts are showing black because they use CSS variable colors that don't resolve properly in Recharts:
-- **Top Applications pie chart**: Uses `hsl(var(--chart-1))`, `hsl(var(--chart-2))`, etc.
-- **Working vs Idle bar chart**: Uses `hsl(var(--primary))`
+Currently, "working" and "idle" are determined by the `status` field in the database, which is based on keyboard/mouse activity. The user wants a different definition:
+
+- **Working**: Only time spent in **Adobe Photoshop**, **Adobe InDesign**, or **Adobe Illustrator**
+- **Idle**: Time spent in **all other applications**
+
+This affects stats (Total Hours, Productive Time, Idle Time, Productivity Score) and charts across both the Analytics and Employee Detail pages.
 
 ### Solution
 
-Update `src/pages/EmployeeDetail.tsx` to use explicit hex colors:
+#### 1. Create a shared helper function (`src/lib/productiveApps.ts`)
 
-#### 1. Update COLORS Array (Line 19)
+A utility that checks if a given app name (raw window title) belongs to a "productive" app:
 
-Replace CSS variables with vibrant hex colors:
+| Productive App | Detection Methods |
+|---------------|-------------------|
+| Adobe Photoshop | `.psd`, `.psb` extensions, or "Photoshop" in title |
+| Adobe InDesign | `.indd` extension, or "InDesign" in title |
+| Adobe Illustrator | `.ai` extension, or "Illustrator" in title |
 
-| Current | New |
-|---------|-----|
-| `hsl(var(--chart-1))` | `#3B82F6` (Blue) |
-| `hsl(var(--chart-2))` | `#10B981` (Green) |
-| `hsl(var(--chart-3))` | `#F59E0B` (Yellow) |
-| `hsl(var(--chart-4))` | `#EF4444` (Red) |
-| `hsl(var(--chart-5))` | `#8B5CF6` (Purple) |
+#### 2. Update `useActivityLogs` hook
 
-#### 2. Update Bar Chart Colors (Line 319-325)
+Change how `totalWorkingTime` and `totalIdleTime` are calculated:
 
-Add individual Cell components with distinct colors for Working (Green) and Idle (Amber):
+- **Currently**: Uses `log.status === 'working'` (keyboard/mouse activity)
+- **Updated**: Uses `isProductiveApp(log.app_name)` to classify
 
-- **Working bar**: `#10B981` (Green)
-- **Idle bar**: `#F59E0B` (Amber)
+This means all stats cards (Total Hours, Productive Time, Idle Time, Productivity Score) will automatically reflect the new logic everywhere the hook is used.
 
-### Files to Modify
+#### 3. Update `Analytics.tsx` - Daily Activity Breakdown
+
+Change the daily breakdown chart to classify logs by app name instead of status:
+
+- **Working hours**: Sum of duration where app is Photoshop/InDesign/Illustrator
+- **Idle hours**: Sum of duration for all other apps
+- Fix bar colors: Working = green (#10B981), Idle = amber (#F59E0B) -- remove per-day Cell components
+
+#### 4. Update `Analytics.tsx` - Employee Ranking
+
+Update the employee productivity ranking to use the same app-based classification.
+
+### Files to Create/Modify
 
 | File | Changes |
 |------|---------|
-| `src/pages/EmployeeDetail.tsx` | Replace COLORS array with hex colors, update bar chart to use Cell components with explicit colors |
+| `src/lib/productiveApps.ts` | **New file** -- `isProductiveApp()` helper function |
+| `src/hooks/useActivityLogs.tsx` | Change `totalWorkingTime`/`totalIdleTime` to use app-based classification |
+| `src/pages/Analytics.tsx` | Update `dailyData` and `employeeRanking` to use app-based classification; fix daily chart bar colors |
 
-### Result
+### Technical Details
 
-After implementation:
-- Top Applications pie chart will show 5 distinct vibrant colors
-- Working vs Idle bar chart will show green for Working and amber for Idle
-- Charts will match the Analytics page styling
+**isProductiveApp function logic:**
+```text
+function isProductiveApp(appName: string): boolean
+  1. Convert to lowercase
+  2. Check file extensions: .psd, .psb, .indd, .ai
+  3. Check name patterns: "photoshop", "indesign", "illustrator"
+  4. Return true if any match, false otherwise
+```
+
+**useActivityLogs changes (lines 78-84):**
+```text
+Before: filter by log.status === 'working' / 'idle'
+After:  filter by isProductiveApp(log.app_name) true/false
+```
+
+**Analytics.tsx dailyData changes (lines 218-235):**
+```text
+Before: if (log.status === 'working') -> working hours
+After:  if (isProductiveApp(log.app_name)) -> working hours
+Also: Remove Cell components from daily bars, use fill="#10B981" and fill="#F59E0B" directly
+```
 
