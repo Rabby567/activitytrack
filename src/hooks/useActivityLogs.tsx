@@ -10,16 +10,23 @@ interface UseActivityLogsOptions {
   endDate?: Date;
 }
 
+interface DailyBreakdownEntry {
+  date: string;
+  working_seconds: number;
+  idle_seconds: number;
+}
+
 interface ActivityStats {
   working_seconds: number;
   idle_seconds: number;
   app_usage: Record<string, number>;
+  daily_breakdown: DailyBreakdownEntry[];
 }
 
 export function useActivityLogs(options: UseActivityLogsOptions = {}) {
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState<ActivityStats>({ working_seconds: 0, idle_seconds: 0, app_usage: {} });
+  const [stats, setStats] = useState<ActivityStats>({ working_seconds: 0, idle_seconds: 0, app_usage: {}, daily_breakdown: [] });
   const { toast } = useToast();
 
   const fetchStats = async () => {
@@ -96,6 +103,7 @@ export function useActivityLogs(options: UseActivityLogsOptions = {}) {
     logs,
     loading,
     appUsage: stats.app_usage,
+    dailyBreakdown: stats.daily_breakdown,
     totalWorkingTime: stats.working_seconds,
     totalIdleTime: stats.idle_seconds,
     refetch: () => { fetchLogs(); fetchStats(); }
