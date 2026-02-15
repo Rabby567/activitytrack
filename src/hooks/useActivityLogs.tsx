@@ -10,16 +10,36 @@ interface UseActivityLogsOptions {
   endDate?: Date;
 }
 
+interface ActivityStats {
+  working_seconds: number;
+  idle_seconds: number;
+  app_usage: Record<string, number>;
+}
+
 export function useActivityLogs(options: UseActivityLogsOptions = {}) {
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState<ActivityStats>({ working_seconds: 0, idle_seconds: 0, app_usage: {} });
   const { toast } = useToast();
+
+  const fetchStats = async () => {
+    const { data, error } = await supabase.rpc('get_activity_stats', {
+      p_employee_id: options.employeeId || null,
+      p_start_date: options.startDate?.toISOString() || null,
+      p_end_date: options.endDate?.toISOString() || null,
+    });
+
+    if (!error && data) {
+      setStats(data as unknown as ActivityStats);
+    }
+  };
 
   const fetchLogs = async () => {
     let query = supabase
       .from('activity_logs')
       .select('*')
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(5000);
 
     if (options.employeeId) {
       query = query.eq('employee_id', options.employeeId);
@@ -49,6 +69,7 @@ export function useActivityLogs(options: UseActivityLogsOptions = {}) {
 
   useEffect(() => {
     fetchLogs();
+    fetchStats();
 
     // Real-time subscription
     const channel = supabase
@@ -60,6 +81,7 @@ export function useActivityLogs(options: UseActivityLogsOptions = {}) {
           const newLog = payload.new as ActivityLog;
           if (!options.employeeId || newLog.employee_id === options.employeeId) {
             setLogs(prev => [newLog, ...prev]);
+            fetchStats(); // Re-fetch accurate stats
           }
         }
       )
@@ -70,26 +92,12 @@ export function useActivityLogs(options: UseActivityLogsOptions = {}) {
     };
   }, [options.employeeId, options.startDate?.getTime(), options.endDate?.getTime()]);
 
-  // Calculate stats
-  const appUsage = logs.reduce((acc, log) => {
-    acc[log.app_name] = (acc[log.app_name] || 0) + log.duration_seconds;
-    return acc;
-  }, {} as Record<string, number>);
-
-  const totalWorkingTime = logs
-    .filter(l => isProductiveApp(l.app_name))
-    .reduce((acc, l) => acc + l.duration_seconds, 0);
-
-  const totalIdleTime = logs
-    .filter(l => !isProductiveApp(l.app_name))
-    .reduce((acc, l) => acc + l.duration_seconds, 0);
-
   return {
     logs,
     loading,
-    appUsage,
-    totalWorkingTime,
-    totalIdleTime,
-    refetch: fetchLogs
+    appUsage: stats.app_usage,
+    totalWorkingTime: stats.working_seconds,
+    totalIdleTime: stats.idle_seconds,
+    refetch: () => { fetchLogs(); fetchStats(); }
   };
 }
