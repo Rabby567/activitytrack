@@ -44,17 +44,17 @@ export default function Login() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
+    if (!isGmail(loginEmail)) {
+      setLoginError('Only Gmail addresses (@gmail.com) are allowed.');
+      return;
+    }
     setLoading(true);
     const { error } = await signIn(loginEmail, loginPassword);
     if (error) {
       if (error.message.toLowerCase().includes('email not confirmed')) {
         setLoginError("Your email hasn't been verified yet. Please check your Gmail inbox and click the verification link.");
       } else {
-        toast({
-          title: 'Login failed',
-          description: error.message,
-          variant: 'destructive'
-        });
+        setLoginError('Incorrect email or password.');
       }
     }
     setLoading(false);
