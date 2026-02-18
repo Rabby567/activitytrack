@@ -6,8 +6,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Monitor, Loader2 } from 'lucide-react';
+import { Monitor, Loader2, Mail, CheckCircle2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+
+const isGmail = (email: string) => email.trim().toLowerCase().endsWith('@gmail.com');
 
 export default function Login() {
   const { user, loading: authLoading, signIn, signUp } = useAuth();
@@ -17,11 +19,15 @@ export default function Login() {
   // Login form state
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
 
   // Signup form state
   const [signupName, setSignupName] = useState('');
   const [signupEmail, setSignupEmail] = useState('');
   const [signupPassword, setSignupPassword] = useState('');
+  const [signupEmailError, setSignupEmailError] = useState('');
+  const [signupSuccess, setSignupSuccess] = useState(false);
+  const [verificationEmail, setVerificationEmail] = useState('');
 
   if (authLoading) {
     return (
@@ -37,20 +43,32 @@ export default function Login() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLoginError('');
     setLoading(true);
     const { error } = await signIn(loginEmail, loginPassword);
     if (error) {
-      toast({
-        title: 'Login failed',
-        description: error.message,
-        variant: 'destructive'
-      });
+      if (error.message.toLowerCase().includes('email not confirmed')) {
+        setLoginError("Your email hasn't been verified yet. Please check your Gmail inbox and click the verification link.");
+      } else {
+        toast({
+          title: 'Login failed',
+          description: error.message,
+          variant: 'destructive'
+        });
+      }
     }
     setLoading(false);
   };
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSignupEmailError('');
+
+    if (!isGmail(signupEmail)) {
+      setSignupEmailError('Only Gmail addresses (@gmail.com) are allowed.');
+      return;
+    }
+
     setLoading(true);
     const { error } = await signUp(signupEmail, signupPassword, signupName);
     if (error) {
@@ -60,13 +78,53 @@ export default function Login() {
         variant: 'destructive'
       });
     } else {
-      toast({
-        title: 'Account created!',
-        description: 'You can now access the dashboard.'
-      });
+      setVerificationEmail(signupEmail);
+      setSignupSuccess(true);
     }
     setLoading(false);
   };
+
+  if (signupSuccess) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background to-muted p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader className="text-center">
+            <div className="flex justify-center mb-4">
+              <div className="rounded-full bg-primary/10 p-3">
+                <Mail className="h-8 w-8 text-primary" />
+              </div>
+            </div>
+            <CardTitle className="text-2xl">Check your Gmail!</CardTitle>
+            <CardDescription>We've sent a verification link to your inbox</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 text-center">
+            <div className="rounded-lg bg-muted p-4 text-sm">
+              <p className="font-medium text-foreground">{verificationEmail}</p>
+            </div>
+            <p className="text-muted-foreground text-sm">
+              Click the link in the email to activate your account, then come back here to log in.
+            </p>
+            <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/50 p-3 text-xs text-muted-foreground">
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />
+              <span>Didn't receive it? Check your spam folder or wait a few minutes.</span>
+            </div>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => {
+                setSignupSuccess(false);
+                setSignupEmail('');
+                setSignupPassword('');
+                setSignupName('');
+              }}
+            >
+              Back to Login
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background to-muted p-4">
@@ -93,9 +151,9 @@ export default function Login() {
                   <Input
                     id="login-email"
                     type="email"
-                    placeholder="admin@company.com"
+                    placeholder="admin@gmail.com"
                     value={loginEmail}
-                    onChange={e => setLoginEmail(e.target.value)}
+                    onChange={e => { setLoginEmail(e.target.value); setLoginError(''); }}
                     required
                   />
                 </div>
@@ -109,6 +167,12 @@ export default function Login() {
                     required
                   />
                 </div>
+                {loginError && (
+                  <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                    <Mail className="h-4 w-4 mt-0.5 shrink-0" />
+                    <span>{loginError}</span>
+                  </div>
+                )}
                 <Button type="submit" className="w-full" disabled={loading}>
                   {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Sign In'}
                 </Button>
@@ -127,15 +191,18 @@ export default function Login() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="signup-email">Email</Label>
+                  <Label htmlFor="signup-email">Gmail Address</Label>
                   <Input
                     id="signup-email"
                     type="email"
-                    placeholder="admin@company.com"
+                    placeholder="yourname@gmail.com"
                     value={signupEmail}
-                    onChange={e => setSignupEmail(e.target.value)}
+                    onChange={e => { setSignupEmail(e.target.value); setSignupEmailError(''); }}
                     required
                   />
+                  {signupEmailError && (
+                    <p className="text-sm text-destructive">{signupEmailError}</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="signup-password">Password</Label>
@@ -148,6 +215,9 @@ export default function Login() {
                     minLength={6}
                   />
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  Only Gmail addresses (@gmail.com) are accepted. A verification link will be sent to your inbox.
+                </p>
                 <Button type="submit" className="w-full" disabled={loading}>
                   {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Create Account'}
                 </Button>
