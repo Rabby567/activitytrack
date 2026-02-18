@@ -21,15 +21,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
+        const confirmedUser = session?.user?.email_confirmed_at ? session.user : null;
+        setSession(confirmedUser ? session : null);
+        setUser(confirmedUser);
         setLoading(false);
       }
     );
 
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
+      const confirmedUser = session?.user?.email_confirmed_at ? session.user : null;
+      setSession(confirmedUser ? session : null);
+      setUser(confirmedUser);
       setLoading(false);
     });
 
