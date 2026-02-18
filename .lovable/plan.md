@@ -1,48 +1,93 @@
 
+## Add Gmail-Only Signup with Email Verification
 
-## Fix: Daily Activity Chart Missing Older Days Due to 5,000 Row Limit
+### What Will Change
 
-### Problem
+Currently, anyone can sign up with any email and immediately access the dashboard — no verification required. This plan adds two security layers:
 
-The stats cards show correct totals (73.8h) because they use the server-side `get_activity_stats` function. However, the Daily Activity Breakdown chart relies on the raw logs query which is capped at 5,000 rows (ordered newest first). February has ~8,853 logs, so the chart only shows the most recent ~5,000 -- missing Feb 01-05.
+1. **Gmail-only restriction** — The signup form will validate that the email ends with `@gmail.com` before submitting. Non-Gmail addresses are rejected with a clear error message.
+2. **Email verification gate** — After signing up, the user receives a verification email. They cannot log in until they click the link. If they try to log in without verifying, they'll see an informative message.
 
-### Solution
+---
 
-Extend the existing `get_activity_stats` database function to also return a **daily breakdown** (working and idle seconds per day). This way the chart uses server-side aggregated data instead of raw logs, just like the stats cards.
+### How It Works (User Flow)
+
+```text
+Sign Up (Gmail only)
+        ↓
+Verification email sent to Gmail
+        ↓
+User clicks link in email → redirected back to app
+        ↓
+User logs in → Dashboard
+```
+
+If someone tries to log in without verifying → friendly error message shown.
+
+---
 
 ### Implementation Steps
 
-1. **Update the `get_activity_stats` database function** to include a `daily_breakdown` array in its return JSON, containing `{ date, working_seconds, idle_seconds }` for each day with data.
+#### 1. `src/hooks/useAuth.tsx` — Add `email_confirmed_at` check to `signIn`
 
-2. **Update `useActivityLogs` hook** to expose `dailyBreakdown` from the RPC response.
+When a user tries to sign in, if the auth system returns a "Email not confirmed" error, surface a clear, user-friendly message. Also update `signUp` to pass the correct `emailRedirectTo` URL.
 
-3. **Update `Analytics.tsx`** to use the server-side daily breakdown data instead of computing it from raw logs. The existing logic that pre-fills all days in the range will remain, but will be populated from the RPC data instead of from the limited logs array.
+#### 2. `src/pages/Login.tsx` — Add Gmail validation + post-signup state
 
-### Files to Create/Modify
+- **Signup form**: Before calling `signUp`, check that the email ends with `@gmail.com`. If not, show an inline error and block submission. No toast needed — show it right under the email field.
+- **After successful signup**: Instead of saying "You can now access the dashboard" (which is wrong — they haven't verified yet), switch to a **success screen** that says:
+  > "Check your Gmail inbox! We've sent a verification link to `[email]`. Click it to activate your account, then come back here to log in."
+- **Login form**: If the error is "Email not confirmed", show a specific message: "Please check your Gmail and click the verification link before logging in."
 
-| File | Changes |
-|------|---------|
-| Database migration | Update `get_activity_stats` to return `daily_breakdown` |
-| `src/hooks/useActivityLogs.tsx` | Expose `dailyBreakdown` from stats |
-| `src/pages/Analytics.tsx` | Use `dailyBreakdown` instead of `logs` for the daily chart |
+#### 3. `src/App.tsx` — Add `/verify` route (email redirect landing page)
+
+When the user clicks the verification link in their email, they are redirected back to the app at the root URL. The auth state listener in `useAuth` will automatically pick up the verified session. No separate page is strictly needed — but we'll make the redirect URL `/login` so users land on the login page with a clean prompt to sign in after verifying.
+
+Update `emailRedirectTo` in `useAuth.tsx` to point to `/login` so after clicking the link in Gmail, users land on the login screen, ready to sign in.
+
+---
+
+### Files to Modify
+
+| File | Change |
+|------|--------|
+| `src/hooks/useAuth.tsx` | Update `emailRedirectTo` to `window.location.origin + '/login'` |
+| `src/pages/Login.tsx` | Add Gmail-only validation, post-signup success screen, and unverified login error handling |
+
+---
 
 ### Technical Details
 
-**Database function update:**
+**Gmail validation (client-side):**
+```typescript
+const isGmail = (email: string) => email.trim().toLowerCase().endsWith('@gmail.com');
 
-The function will add a `daily_breakdown` key to its JSON return:
-
-```text
-daily_breakdown: [
-  { "date": "2026-02-01", "working_seconds": 3600, "idle_seconds": 7200 },
-  { "date": "2026-02-02", "working_seconds": 5400, "idle_seconds": 4800 },
-  ...
-]
+if (!isGmail(signupEmail)) {
+  setEmailError('Only Gmail addresses (@gmail.com) are allowed.');
+  return;
+}
 ```
 
-This aggregates ALL matching rows grouped by date, with no row limit.
+**Post-signup success state:**
+```typescript
+const [signupSuccess, setSignupSuccess] = useState(false);
+// After successful signUp():
+setSignupSuccess(true);
+// Render a card telling user to check their Gmail inbox
+```
 
-**Analytics.tsx `dailyData` update:**
+**Unverified login error:**
+The auth backend already returns "Email not confirmed" when a user tries to sign in without verifying. We catch that string and show:
+```
+"Your email hasn't been verified yet. Please check your Gmail inbox and click the verification link."
+```
 
-Instead of iterating over `logs` (which is capped), it will iterate over the `dailyBreakdown` array from the RPC, converting seconds to hours and mapping them into the pre-populated day map.
+**Email confirmation is already enabled** in the backend by default (auto-confirm is NOT set), so no backend configuration changes are needed — verification emails are already being sent. The only missing pieces are the Gmail restriction and the proper UI feedback.
 
+---
+
+### What Stays the Same
+
+- Existing users who already have accounts are unaffected
+- The login flow, dashboard, and all other pages remain unchanged
+- Password requirements (minimum 6 characters) stay the same
