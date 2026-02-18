@@ -1,60 +1,86 @@
 
-## Fix: Login Form Allows Any Email Address
+## Fix: Email Verification Not Being Enforced
 
 ### Root Cause
 
-The `isGmail()` helper function exists in `Login.tsx` and is correctly applied to the **signup** form. However, the `handleLogin` function has **no Gmail check at all** — it immediately calls the auth backend with whatever email the user types, including non-Gmail addresses. The fix is to add the same Gmail validation to the login form.
+The auth logs reveal the exact problem:
 
-Additionally, when login fails with wrong credentials (e.g. unregistered Gmail), the error goes to a toast popup instead of an inline message below the form — which is inconsistent with the verification error display.
+```
+"immediate_login_after_signup": true
+```
+
+This means the backend is set to **auto-confirm** accounts and log users in right after signup — so the verification email is sent, but the user is already authenticated and can log in without ever clicking it. The frontend code is correct (it shows a "check your Gmail" screen and catches the "email not confirmed" error), but it never triggers because the backend never blocks login.
+
+The fix requires **disabling auto-confirm** in the Supabase auth configuration so that the backend actually requires email verification before allowing login.
+
+---
 
 ### What Will Change
 
-**`src/pages/Login.tsx`** — Two changes to `handleLogin`:
+#### 1. Backend Auth Settings — Disable Auto-Confirm
 
-1. **Gmail gate before network call**: Before calling `signIn`, check if the entered email is a Gmail address. If not, set `loginError` with a clear message and return early — no network request is made.
+Turn off `autoconfirm` in the auth configuration. Once disabled:
+- Signup will send a verification email but NOT log the user in
+- Any login attempt before verification will return an "Email not confirmed" error
+- The existing frontend error handling will then correctly block login and show the message
 
-2. **Inline error for wrong credentials**: Change the `else` branch (which currently shows a toast) to instead set `loginError` with "Incorrect email or password." This keeps all login errors consistent — shown inline below the form, not as a popup.
+#### 2. `src/hooks/useAuth.tsx` — Handle Unverified Session
+
+Currently, after signup, the `onAuthStateChange` listener may set `user` to the auto-confirmed session. Once auto-confirm is off, signup returns no active session. We need to make sure the `signUp` function does **not** redirect the user to the dashboard after signup — it should stay on the login page and show the "check your Gmail" screen.
+
+We'll also add a check: if a user object exists but `email_confirmed_at` is null/empty, treat them as **not logged in** and redirect to login. This adds a second layer of protection even if the session somehow slips through.
+
+#### 3. `src/pages/Login.tsx` — Guard the redirect after signup
+
+The `if (user)` redirect at the top of the Login page currently sends any authenticated user to `/dashboard`. After the fix, a newly signed-up unverified user will no longer have a session, so this guard is fine. But we should also ensure that on the login tab, if someone somehow has an unverified session, they are not redirected to dashboard.
+
+---
 
 ### Files to Modify
 
 | File | Change |
 |------|--------|
-| `src/pages/Login.tsx` | Add Gmail validation + inline error to `handleLogin` |
+| `src/hooks/useAuth.tsx` | Add `email_confirmed_at` guard — only set `user` if email is confirmed |
+| `supabase/config.toml` | This is auto-managed, so we use the `configure-auth` tool to disable auto-confirm |
+
+---
 
 ### Technical Detail
 
-**Before (`handleLogin`):**
-```
-1. Call signIn() directly — no Gmail check
-2. If error is "email not confirmed" → inline error
-3. Any other error → toast popup
-```
+**In `useAuth.tsx`**, change the `onAuthStateChange` callback to check email confirmation:
 
-**After (`handleLogin`):**
-```
-1. Check isGmail(loginEmail) → if not Gmail, show inline error, return early
-2. Call signIn()
-3. If error is "email not confirmed" → inline error  
-4. Any other error (wrong password / unregistered email) → inline error "Incorrect email or password."
-```
-
-The existing `loginError` state and error display box (the red card below the password field) is already in place — we just need to populate it in more cases.
-
-### Specific Code Change
-
-In `handleLogin` (lines 44-61), add before `setLoading(true)`:
 ```typescript
-if (!isGmail(loginEmail)) {
-  setLoginError('Only Gmail addresses (@gmail.com) are allowed.');
-  return;
-}
+supabase.auth.onAuthStateChange((_event, session) => {
+  const confirmedUser = session?.user?.email_confirmed_at ? session.user : null;
+  setSession(confirmedUser ? session : null);
+  setUser(confirmedUser);
+  setLoading(false);
+});
 ```
 
-And replace the `else` toast branch with:
-```typescript
-} else {
-  setLoginError('Incorrect email or password.');
-}
+This ensures that even if the backend returns a session for an unverified user, the frontend treats them as logged out and keeps them on the login page.
+
+**Backend**: Disable `autoconfirm` via the auth configuration tool so signup does not auto-login the user and forces real email verification.
+
+---
+
+### End Result Flow
+
+```
+User signs up with Gmail
+        ↓
+Backend sends verification email (no auto-login)
+        ↓
+Frontend shows "Check your Gmail!" screen
+        ↓
+User clicks link in Gmail → redirected to /login
+        ↓
+User enters credentials → login succeeds
+        ↓
+Dashboard access granted
 ```
 
-No other files need to change.
+Without verification:
+```
+User tries to log in → "Email not confirmed" inline error
+```
