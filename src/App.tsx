@@ -12,6 +12,7 @@ import EmployeeDetail from "./pages/EmployeeDetail";
 import Analytics from "./pages/Analytics";
 import Settings from "./pages/Settings";
 import AgentDownload from "./pages/AgentDownload";
+import ResetPassword from "./pages/ResetPassword";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -27,6 +28,7 @@ const App = () => (
             <Routes>
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
               <Route path="/login" element={<Login />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/employees" element={<Employees />} />
               <Route path="/employees/:id" element={<EmployeeDetail />} />
