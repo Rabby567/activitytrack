@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Monitor, Loader2, Mail, CheckCircle2 } from 'lucide-react';
+import { Monitor, Loader2, Mail, CheckCircle2, KeyRound } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 const isGmail = (email: string) => email.trim().toLowerCase().endsWith('@gmail.com');
@@ -28,6 +29,12 @@ export default function Login() {
   const [signupEmailError, setSignupEmailError] = useState('');
   const [signupSuccess, setSignupSuccess] = useState(false);
   const [verificationEmail, setVerificationEmail] = useState('');
+
+  // Forgot password state
+  const [forgotPassword, setForgotPassword] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotError, setForgotError] = useState('');
+  const [forgotSuccess, setForgotSuccess] = useState(false);
 
   if (authLoading) {
     return (
@@ -84,6 +91,27 @@ export default function Login() {
     setLoading(false);
   };
 
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setForgotError('');
+
+    if (!isGmail(forgotEmail)) {
+      setForgotError('Only Gmail addresses (@gmail.com) are allowed.');
+      return;
+    }
+
+    setLoading(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+    if (error) {
+      setForgotError(error.message);
+    } else {
+      setForgotSuccess(true);
+    }
+    setLoading(false);
+  };
+
   if (signupSuccess) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background to-muted p-4">
@@ -120,6 +148,98 @@ export default function Login() {
             >
               Back to Login
             </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Forgot password - success screen
+  if (forgotPassword && forgotSuccess) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background to-muted p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader className="text-center">
+            <div className="flex justify-center mb-4">
+              <div className="rounded-full bg-primary/10 p-3">
+                <Mail className="h-8 w-8 text-primary" />
+              </div>
+            </div>
+            <CardTitle className="text-2xl">Check your Gmail!</CardTitle>
+            <CardDescription>We've sent a password reset link to your inbox</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 text-center">
+            <div className="rounded-lg bg-muted p-4 text-sm">
+              <p className="font-medium text-foreground">{forgotEmail}</p>
+            </div>
+            <p className="text-muted-foreground text-sm">
+              Click the link in the email to reset your password.
+            </p>
+            <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/50 p-3 text-xs text-muted-foreground">
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />
+              <span>Didn't receive it? Check your spam folder or wait a few minutes.</span>
+            </div>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => {
+                setForgotPassword(false);
+                setForgotSuccess(false);
+                setForgotEmail('');
+              }}
+            >
+              Back to Login
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Forgot password - email entry form
+  if (forgotPassword) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background to-muted p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader className="text-center">
+            <div className="flex justify-center mb-4">
+              <div className="rounded-full bg-primary/10 p-3">
+                <KeyRound className="h-8 w-8 text-primary" />
+              </div>
+            </div>
+            <CardTitle className="text-2xl">Forgot Password</CardTitle>
+            <CardDescription>Enter your Gmail address and we'll send you a reset link</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleForgotPassword} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="forgot-email">Gmail Address</Label>
+                <Input
+                  id="forgot-email"
+                  type="email"
+                  placeholder="yourname@gmail.com"
+                  value={forgotEmail}
+                  onChange={e => { setForgotEmail(e.target.value); setForgotError(''); }}
+                  required
+                />
+              </div>
+              {forgotError && (
+                <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                  {forgotError}
+                </div>
+              )}
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Send Reset Link'}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className="w-full"
+                onClick={() => { setForgotPassword(false); setForgotError(''); setForgotEmail(''); }}
+              >
+                Back to Login
+              </Button>
+            </form>
           </CardContent>
         </Card>
       </div>
@@ -175,6 +295,14 @@ export default function Login() {
                 )}
                 <Button type="submit" className="w-full" disabled={loading}>
                   {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Sign In'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="link"
+                  className="w-full text-sm text-muted-foreground"
+                  onClick={() => setForgotPassword(true)}
+                >
+                  Forgot password?
                 </Button>
               </form>
             </TabsContent>
