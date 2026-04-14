@@ -1,86 +1,50 @@
 
-## Fix: Email Verification Not Being Enforced
 
-### Root Cause
-
-The auth logs reveal the exact problem:
-
-```
-"immediate_login_after_signup": true
-```
-
-This means the backend is set to **auto-confirm** accounts and log users in right after signup — so the verification email is sent, but the user is already authenticated and can log in without ever clicking it. The frontend code is correct (it shows a "check your Gmail" screen and catches the "email not confirmed" error), but it never triggers because the backend never blocks login.
-
-The fix requires **disabling auto-confirm** in the Supabase auth configuration so that the backend actually requires email verification before allowing login.
-
----
+## Add Forgot Password / Reset Password Flow
 
 ### What Will Change
 
-#### 1. Backend Auth Settings — Disable Auto-Confirm
+Users will be able to recover their account by clicking "Forgot password?" on the login page, entering their Gmail, and receiving a reset link. Clicking the link takes them to a page where they set a new password.
 
-Turn off `autoconfirm` in the auth configuration. Once disabled:
-- Signup will send a verification email but NOT log the user in
-- Any login attempt before verification will return an "Email not confirmed" error
-- The existing frontend error handling will then correctly block login and show the message
+### User Flow
 
-#### 2. `src/hooks/useAuth.tsx` — Handle Unverified Session
+```text
+Login page → Click "Forgot password?"
+        ↓
+Enter Gmail address → Click "Send Reset Link"
+        ↓
+Check Gmail inbox → Click reset link
+        ↓
+/reset-password page → Enter new password → Confirm
+        ↓
+Password updated → Sign in with new password
+```
 
-Currently, after signup, the `onAuthStateChange` listener may set `user` to the auto-confirmed session. Once auto-confirm is off, signup returns no active session. We need to make sure the `signUp` function does **not** redirect the user to the dashboard after signup — it should stay on the login page and show the "check your Gmail" screen.
-
-We'll also add a check: if a user object exists but `email_confirmed_at` is null/empty, treat them as **not logged in** and redirect to login. This adds a second layer of protection even if the session somehow slips through.
-
-#### 3. `src/pages/Login.tsx` — Guard the redirect after signup
-
-The `if (user)` redirect at the top of the Login page currently sends any authenticated user to `/dashboard`. After the fix, a newly signed-up unverified user will no longer have a session, so this guard is fine. But we should also ensure that on the login tab, if someone somehow has an unverified session, they are not redirected to dashboard.
-
----
-
-### Files to Modify
+### Files to Create/Modify
 
 | File | Change |
 |------|--------|
-| `src/hooks/useAuth.tsx` | Add `email_confirmed_at` guard — only set `user` if email is confirmed |
-| `supabase/config.toml` | This is auto-managed, so we use the `configure-auth` tool to disable auto-confirm |
+| `src/pages/ResetPassword.tsx` | **New** — Page that handles the recovery token and lets users set a new password |
+| `src/pages/Login.tsx` | Add "Forgot password?" link and inline forgot password form |
+| `src/App.tsx` | Add `/reset-password` route |
 
----
+### Implementation Details
 
-### Technical Detail
+**1. Login.tsx** — Add forgot password UI:
+- Add a "Forgot password?" button below the Sign In button
+- When clicked, show a form asking for Gmail address (with existing Gmail validation)
+- On submit, call `supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin + '/reset-password' })`
+- Show success screen: "Check your Gmail for a password reset link"
+- "Back to Login" button to return to normal login
 
-**In `useAuth.tsx`**, change the `onAuthStateChange` callback to check email confirmation:
+**2. ResetPassword.tsx** — New page:
+- Listen for `PASSWORD_RECOVERY` auth event and check URL hash for `type=recovery`
+- If not a valid recovery session, show "Invalid or expired link" with back-to-login button
+- If valid, show "New Password" and "Confirm Password" fields
+- Validate min 6 characters and matching passwords
+- Call `supabase.auth.updateUser({ password })` to save
+- On success, sign out and show "Password Updated!" with link back to login
 
-```typescript
-supabase.auth.onAuthStateChange((_event, session) => {
-  const confirmedUser = session?.user?.email_confirmed_at ? session.user : null;
-  setSession(confirmedUser ? session : null);
-  setUser(confirmedUser);
-  setLoading(false);
-});
-```
+**3. App.tsx** — Add route:
+- Import `ResetPassword` and add `<Route path="/reset-password" element={<ResetPassword />} />`
 
-This ensures that even if the backend returns a session for an unverified user, the frontend treats them as logged out and keeps them on the login page.
-
-**Backend**: Disable `autoconfirm` via the auth configuration tool so signup does not auto-login the user and forces real email verification.
-
----
-
-### End Result Flow
-
-```
-User signs up with Gmail
-        ↓
-Backend sends verification email (no auto-login)
-        ↓
-Frontend shows "Check your Gmail!" screen
-        ↓
-User clicks link in Gmail → redirected to /login
-        ↓
-User enters credentials → login succeeds
-        ↓
-Dashboard access granted
-```
-
-Without verification:
-```
-User tries to log in → "Email not confirmed" inline error
-```
